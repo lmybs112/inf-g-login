@@ -1,10 +1,391 @@
 /**
  * OAuth 回調處理機制
  * 處理 Google OAuth 登入回調，支援多種配置模式
+ * 包含無痕模式檢測和處理
  */
 
-// 檢查 OAuth 回調並自動重開 modal
+// 無痕模式檢測和處理類別
+class IncognitoModeHandler {
+    constructor() {
+        this.isIncognito = false;
+        this.storageAvailable = true;
+        this.detectionMethods = [
+            this.detectByStorageQuota,
+            this.detectByIndexedDB,
+            this.detectByServiceWorker,
+            this.detectByWebRTC
+        ];
+        
+        this.init();
+    }
+    
+    init() {
+        this.detectIncognitoMode();
+        this.setupStorageFallback();
+    }
+    
+    // 檢測無痕模式
+    detectIncognitoMode() {
+        console.log('🔍 開始檢測無痕模式...');
+        
+        // 嘗試多種檢測方法
+        for (const method of this.detectionMethods) {
+            try {
+                if (method.call(this)) {
+                    this.isIncognito = true;
+                    console.log('🚫 檢測到無痕模式');
+                    break;
+                }
+            } catch (e) {
+                console.log(`檢測方法失敗: ${method.name}`, e);
+            }
+        }
+        
+        // 檢查 localStorage 是否可用
+        this.checkStorageAvailability();
+        
+        console.log(`無痕模式狀態: ${this.isIncognito ? '是' : '否'}`);
+        console.log(`存儲可用性: ${this.storageAvailable ? '是' : '否'}`);
+    }
+    
+    // 方法1: 通過存儲配額檢測
+    detectByStorageQuota() {
+        return new Promise((resolve) => {
+            if ('storage' in navigator && 'estimate' in navigator.storage) {
+                navigator.storage.estimate().then((estimate) => {
+                    // 無痕模式下配額通常很小或為0
+                    const isIncognito = estimate.quota < 120000000; // 120MB
+                    resolve(isIncognito);
+                }).catch(() => resolve(false));
+            } else {
+                resolve(false);
+            }
+        });
+    }
+    
+    // 方法2: 通過 IndexedDB 檢測
+    detectByIndexedDB() {
+        return new Promise((resolve) => {
+            if ('indexedDB' in window) {
+                const request = indexedDB.open('test');
+                request.onerror = () => resolve(true); // 無痕模式下可能失敗
+                request.onsuccess = () => {
+                    request.result.close();
+                    resolve(false);
+                };
+                setTimeout(() => resolve(false), 100);
+            } else {
+                resolve(false);
+            }
+        });
+    }
+    
+    // 方法3: 通過 Service Worker 檢測
+    detectByServiceWorker() {
+        return new Promise((resolve) => {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('data:text/javascript,')
+                    .then(() => resolve(false))
+                    .catch(() => resolve(true)); // 無痕模式下可能失敗
+            } else {
+                resolve(false);
+            }
+        });
+    }
+    
+    // 方法4: 通過 WebRTC 檢測
+    detectByWebRTC() {
+        return new Promise((resolve) => {
+            if (window.RTCPeerConnection) {
+                const pc = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+                pc.createDataChannel('test');
+                pc.createOffer().then(() => {
+                    pc.close();
+                    resolve(false);
+                }).catch(() => resolve(true));
+                setTimeout(() => resolve(false), 1000);
+            } else {
+                resolve(false);
+            }
+        });
+    }
+    
+    // 檢查存儲可用性
+    checkStorageAvailability() {
+        try {
+            // 測試 localStorage
+            const testKey = '__incognito_test__';
+            localStorage.setItem(testKey, 'test');
+            localStorage.removeItem(testKey);
+            
+            // 測試 sessionStorage
+            sessionStorage.setItem(testKey, 'test');
+            sessionStorage.removeItem(testKey);
+            
+            this.storageAvailable = true;
+        } catch (e) {
+            console.warn('⚠️ 存儲不可用，可能是無痕模式或存儲被禁用');
+            this.storageAvailable = false;
+        }
+    }
+    
+    // 設置存儲降級方案
+    setupStorageFallback() {
+        if (this.isIncognito || !this.storageAvailable) {
+            console.log('🔄 設置無痕模式存儲降級方案');
+            this.setupURLBasedStorage();
+        }
+    }
+    
+    // 設置基於 URL 的存儲方案
+    setupURLBasedStorage() {
+        // 重寫存儲方法，使用 URL 參數和 sessionStorage
+        this.originalSetItem = localStorage.setItem;
+        this.originalGetItem = localStorage.getItem;
+        this.originalRemoveItem = localStorage.removeItem;
+        
+        // 使用 sessionStorage 作為主要存儲
+        this.storage = sessionStorage;
+        
+        // 重寫 localStorage 方法
+        localStorage.setItem = (key, value) => {
+            try {
+                this.storage.setItem(key, value);
+            } catch (e) {
+                console.warn(`存儲失敗: ${key}`, e);
+                // 降級到 URL 參數
+                this.storeInURL(key, value);
+            }
+        };
+        
+        localStorage.getItem = (key) => {
+            try {
+                return this.storage.getItem(key);
+            } catch (e) {
+                // 從 URL 參數獲取
+                return this.getFromURL(key);
+            }
+        };
+        
+        localStorage.removeItem = (key) => {
+            try {
+                this.storage.removeItem(key);
+            } catch (e) {
+                // 從 URL 參數移除
+                this.removeFromURL(key);
+            }
+        };
+    }
+    
+    // 在 URL 中存儲數據
+    storeInURL(key, value) {
+        try {
+            const url = new URL(window.location);
+            url.searchParams.set(`storage_${key}`, encodeURIComponent(value));
+            window.history.replaceState({}, '', url);
+            console.log(`📝 已將 ${key} 存儲到 URL 參數`);
+        } catch (e) {
+            console.error('URL 存儲失敗:', e);
+        }
+    }
+    
+    // 從 URL 參數獲取數據
+    getFromURL(key) {
+        try {
+            const url = new URL(window.location);
+            const value = url.searchParams.get(`storage_${key}`);
+            return value ? decodeURIComponent(value) : null;
+        } catch (e) {
+            console.error('URL 獲取失敗:', e);
+            return null;
+        }
+    }
+    
+    // 從 URL 參數移除數據
+    removeFromURL(key) {
+        try {
+            const url = new URL(window.location);
+            url.searchParams.delete(`storage_${key}`);
+            window.history.replaceState({}, '', url);
+        } catch (e) {
+            console.error('URL 移除失敗:', e);
+        }
+    }
+    
+    // 獲取無痕模式狀態
+    isIncognitoMode() {
+        return this.isIncognito || !this.storageAvailable;
+    }
+    
+    // 獲取存儲可用性
+    isStorageAvailable() {
+        return this.storageAvailable;
+    }
+    
+    // 恢復原始存儲方法
+    restore() {
+        if (this.originalSetItem) {
+            localStorage.setItem = this.originalSetItem;
+            localStorage.getItem = this.originalGetItem;
+            localStorage.removeItem = this.originalRemoveItem;
+        }
+    }
+}
+
+// 創建全局無痕模式處理器
+const incognitoHandler = new IncognitoModeHandler();
+
+// 穩定的按鈕查找器類別（替代不穩定的 setTimeout）
+class StableButtonFinder {
+    constructor(selector, options = {}) {
+        this.selector = selector;
+        this.onFound = options.onFound || (() => {});
+        this.onTimeout = options.onTimeout || (() => {});
+        this.isMobile = options.isMobile || false;
+        this.timeout = options.timeout || 10000;
+        this.pollInterval = this.isMobile ? 100 : 150; // 手機版檢查更頻繁
+        this.maxAttempts = Math.floor(this.timeout / this.pollInterval);
+        
+        this.attempts = 0;
+        this.observers = [];
+        this.intervals = [];
+        this.isActive = false;
+        
+        console.log(`🔍 初始化穩定按鈕查找器: ${selector}, 手機模式: ${this.isMobile}`);
+    }
+    
+    start() {
+        if (this.isActive) return;
+        this.isActive = true;
+        
+        // 立即檢查按鈕是否存在
+        if (this.checkButton()) {
+            return;
+        }
+        
+        // 使用 MutationObserver 監聽 DOM 變化
+        this.setupMutationObserver();
+        
+        // 使用輪詢機制作為備用
+        this.setupPolling();
+        
+        // 設置超時機制
+        this.setupTimeout();
+    }
+    
+    checkButton() {
+        const button = this.findButton();
+        if (button && this.isButtonReady(button)) {
+            console.log(`✅ 按鈕 ${this.selector} 已準備就緒`);
+            this.cleanup();
+            this.onFound();
+            return true;
+        }
+        return false;
+    }
+    
+    findButton() {
+        // 支援 ID 選擇器和 CSS 選擇器
+        if (this.selector.startsWith('#')) {
+            return document.getElementById(this.selector.substring(1));
+        } else if (this.selector.startsWith('.')) {
+            return document.querySelector(this.selector);
+        } else {
+            // 假設是 CSS 選擇器
+            return document.querySelector(this.selector);
+        }
+    }
+    
+    isButtonReady(button) {
+        // 檢查按鈕是否可見且可點擊
+        const isVisible = this.isMobile 
+            ? (button.offsetWidth > 0 || button.offsetHeight > 0)
+            : (button.offsetParent !== null);
+        
+        const isClickable = !button.disabled && 
+                           !button.hasAttribute('disabled') && 
+                           button.style.display !== 'none' &&
+                           button.style.visibility !== 'hidden';
+        
+        return isVisible && isClickable;
+    }
+    
+    setupMutationObserver() {
+        const observer = new MutationObserver((mutations) => {
+            if (this.checkButton()) {
+                return;
+            }
+        });
+        
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['style', 'class', 'disabled']
+        });
+        
+        this.observers.push(observer);
+    }
+    
+    setupPolling() {
+        const pollInterval = setInterval(() => {
+            this.attempts++;
+            
+            if (this.checkButton()) {
+                return;
+            }
+            
+            if (this.attempts >= this.maxAttempts) {
+                console.warn(`⚠️ 按鈕查找達到最大嘗試次數: ${this.attempts}`);
+                this.cleanup();
+                this.onTimeout();
+                return;
+            }
+            
+            // 每 10 次嘗試輸出一次日誌
+            if (this.attempts % 10 === 0) {
+                console.log(`🔍 按鈕查找進行中... (${this.attempts}/${this.maxAttempts})`);
+            }
+        }, this.pollInterval);
+        
+        this.intervals.push(pollInterval);
+    }
+    
+    setupTimeout() {
+        const timeoutId = setTimeout(() => {
+            console.warn(`⚠️ 按鈕查找超時: ${this.timeout}ms`);
+            this.cleanup();
+            this.onTimeout();
+        }, this.timeout);
+        
+        this.intervals.push(timeoutId);
+    }
+    
+    cleanup() {
+        this.isActive = false;
+        
+        // 清除所有觀察器
+        this.observers.forEach(observer => observer.disconnect());
+        this.observers = [];
+        
+        // 清除所有定時器
+        this.intervals.forEach(interval => clearInterval(interval));
+        this.intervals = [];
+    }
+    
+    stop() {
+        this.cleanup();
+    }
+}
+
+// 檢查 OAuth 回調並自動重開 modal（支援無痕模式）
 function checkOAuthCallback(config = {}) {
+    // 檢查是否為無痕模式
+    const isIncognito = incognitoHandler.isIncognitoMode();
+    console.log(`🔍 OAuth 回調檢查，無痕模式: ${isIncognito ? '是' : '否'}`);
+    
     const urlParams = new URLSearchParams(window.location.search);
     const urlHash = window.location.hash;
     
@@ -14,6 +395,14 @@ function checkOAuthCallback(config = {}) {
     if (urlHash.includes('access_token=')) {
         const hashParams = new URLSearchParams(urlHash.substring(1));
         accessToken = hashParams.get('access_token');
+    }
+    
+    // 無痕模式：檢查 URL 參數中的備用 token
+    if (isIncognito && !accessToken) {
+        accessToken = urlParams.get('incognito_token');
+        if (accessToken) {
+            console.log('🔍 從無痕模式 URL 參數獲取 access_token');
+        }
     }
     
     if (accessToken) {
@@ -72,21 +461,43 @@ function checkOAuthCallback(config = {}) {
     }
 }
 
-// Panel 模式的 OAuth 回調處理
+// Panel 模式的 OAuth 回調處理（支援無痕模式）
 function handleOAuthCallbackForPanel(config = {}) {
-    // 立即保存 access_token 和用戶信息到 localStorage
+    // 檢查是否為無痕模式
+    const isIncognito = incognitoHandler.isIncognitoMode();
+    console.log(`🔍 Panel 模式 OAuth 處理，無痕模式: ${isIncognito ? '是' : '否'}`);
+    
+    // 立即保存 access_token 和用戶信息
     const urlParams = new URLSearchParams(window.location.search);
     const accessToken = urlParams.get('access_token');
     
     if (accessToken) {
-        localStorage.setItem('inf_google_access_token', accessToken);
+        // 使用無痕模式安全的存儲方式
+        try {
+            localStorage.setItem('inf_google_access_token', accessToken);
+            console.log('✅ 已保存 access_token 到存儲');
+        } catch (e) {
+            console.warn('⚠️ localStorage 存儲失敗，使用 URL 參數備用方案');
+            // 在 URL 中保存 token（無痕模式降級）
+            const url = new URL(window.location);
+            url.searchParams.set('incognito_token', accessToken);
+            window.history.replaceState({}, '', url);
+        }
         
         // 獲取用戶信息（不需要獲取 inf_id，iframe 會自己處理）
         fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${accessToken}`)
             .then(response => response.json())
             .then(userInfo => {
-                localStorage.setItem('inf_google_user_info', JSON.stringify(userInfo));
-                console.log('✅ Panel 模式：已保存 access_token 和 userInfo');
+                try {
+                    localStorage.setItem('inf_google_user_info', JSON.stringify(userInfo));
+                    console.log('✅ Panel 模式：已保存 access_token 和 userInfo');
+                } catch (e) {
+                    console.warn('⚠️ 用戶信息存儲失敗，使用 URL 參數備用方案');
+                    // 在 URL 中保存用戶信息（無痕模式降級）
+                    const url = new URL(window.location);
+                    url.searchParams.set('incognito_user_info', encodeURIComponent(JSON.stringify(userInfo)));
+                    window.history.replaceState({}, '', url);
+                }
             })
             .catch(error => {
                 console.error('❌ 獲取用戶信息失敗:', error);
@@ -121,7 +532,7 @@ function handleOAuthCallbackForPanel(config = {}) {
     }, config.timeout || 10000);
 }
 
-// 開啟彈窗並切換到 AI 頁面的函數（優化版 - 監聽 iframe 通知）
+// 開啟彈窗並切換到 AI 頁面的函數（優化版 - 使用穩定的按鈕查找機制）
 function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
     let buttonClicked = false;
     let findSizeButtonAutoClicked = false;
@@ -141,8 +552,32 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
         
         if (triggerBtn) {
             console.log('✅ 找到 #panelTagBtn，直接點擊！');
-            // 既然找到了就直接用，不要做那麼多檢查
-            triggerBtn.click();
+            
+            // 手機版：使用觸控事件序列確保點擊有效
+            if (isMobile) {
+                try {
+                    // 觸控事件序列
+                    triggerBtn.dispatchEvent(new TouchEvent('touchstart', { 
+                        bubbles: true, 
+                        cancelable: true,
+                        touches: [new Touch({ identifier: 0, target: triggerBtn, clientX: 0, clientY: 0 })]
+                    }));
+                    triggerBtn.click();
+                    triggerBtn.dispatchEvent(new TouchEvent('touchend', { 
+                        bubbles: true, 
+                        cancelable: true,
+                        changedTouches: [new Touch({ identifier: 0, target: triggerBtn, clientX: 0, clientY: 0 })]
+                    }));
+                    console.log('📱 手機版觸控事件序列完成');
+                } catch (e) {
+                    // 降級：只用 click
+                    triggerBtn.click();
+                    console.log('📱 降級使用 click 事件');
+                }
+            } else {
+                // 電腦版：直接 click
+                triggerBtn.click();
+            }
             
             // 設置雙重保險：transitionend 事件 + 定時器
             let transitionFired = false;
@@ -189,188 +624,131 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
     
     window.addEventListener('message', iframeReadyHandler);
     
-    // 使用 MutationObserver 監聽 #panelTagBtn 的出現
-    const observer = new MutationObserver((mutations) => {
-        if (buttonClicked) return;
-        
-        const triggerBtn = document.getElementById('panelTagBtn');
-        if (triggerBtn) {
-            console.log('👀 MutationObserver 檢測到 #panelTagBtn，直接點擊！');
-            observer.disconnect();
-            clickButtonAndProceed();
-        }
-    });
-    
-    // 開始監聽 DOM 變化
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['style', 'class']
-    });
-    
-    // 定期檢查 #panelTagBtn 是否存在（備用機制）
-    const checkInterval = setInterval(() => {
-        if (buttonClicked) {
-            clearInterval(checkInterval);
-            return;
-        }
-        
-        const triggerBtn = document.getElementById('panelTagBtn');
-        if (triggerBtn) {
-            console.log('⏰ 定期檢查發現 #panelTagBtn，直接點擊！');
-            clearInterval(checkInterval);
-            observer.disconnect();
-            clickButtonAndProceed();
-        }
-    }, 500); // 每 500ms 檢查一次
-    
-    // 安全機制：10 秒後如果還沒收到通知，先檢查 #panelTagBtn 是否存在
-    setTimeout(() => {
-        if (!buttonClicked) {
-            console.warn('⚠️ 10 秒內未收到 iframe 通知，檢查 #panelTagBtn 是否存在');
-            window.removeEventListener('message', iframeReadyHandler);
-            observer.disconnect();
-            clearInterval(checkInterval);
-            
-            // 先檢查 #panelTagBtn 是否存在
-            const triggerBtn = document.getElementById('panelTagBtn');
-            if (triggerBtn) {
-                console.log('✅ 找到 #panelTagBtn，直接執行！');
+    // ✅ 使用穩定的按鈕查找機制（移除不穩定的 setTimeout）
+    const buttonFinder = new StableButtonFinder('#panelTagBtn', {
+        onFound: () => {
+            if (!buttonClicked) {
+                console.log('🎯 穩定按鈕查找器找到 #panelTagBtn，直接點擊！');
                 clickButtonAndProceed();
-            } else {
-                console.warn('❌ #panelTagBtn 不存在，等待更長時間...');
-                // 如果按鈕不存在，再等待 5 秒
-                setTimeout(() => {
-                    const retryBtn = document.getElementById('panelTagBtn');
-                    if (retryBtn) {
-                        console.log('✅ 重試後找到 #panelTagBtn，直接執行！');
-                        clickButtonAndProceed();
-                    } else {
-                        console.error('❌ 最終仍未找到 #panelTagBtn，可能頁面載入有問題');
-                    }
-                }, 5000);
             }
-        }
-    }, 10000);
+        },
+        onTimeout: () => {
+            console.warn('⚠️ 按鈕查找超時，直接嘗試點擊「找尋合適尺寸」');
+            autoClickFindSizeButton(iframe, config);
+        },
+        isMobile: isMobile,
+        timeout: 15000 // 15 秒超時
+    });
+    
+    buttonFinder.start();
 }
 
-// 自動點擊「找尋合適尺寸」按鈕的函數（優化版）
+// 自動點擊「找尋合適尺寸」按鈕的函數（優化版 - 使用穩定查找機制）
 function autoClickFindSizeButton(iframe, config = {}) {
     let buttonClicked = false;
-    let checkAttempts = 0;
     
     // 檢測是否為手機瀏覽器
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const maxCheckAttempts = isMobile ? 75 : 50; // 手機版給更多時間
-    const pollInterval = isMobile ? 150 : 200; // 手機版檢查更頻繁
     const buttonDelay = isMobile ? 800 : 500; // 手機版延遲更久
     
     console.log(`📱 autoClickFindSizeButton: ${isMobile ? '手機' : '電腦'}模式`);
     
-    // 嘗試點擊按鈕
-    function tryClickButton() {
-        if (buttonClicked) {
-            return true;
-        }
+    // 點擊按鈕的函數
+    function clickFindSizeButton(button) {
+        if (buttonClicked) return;
+        buttonClicked = true;
         
-        checkAttempts++;
+        console.log('✅ 找到「找尋合適尺寸」按鈕，自動點擊');
         
-        // 尋找「找尋合適尺寸」按鈕（.intro-btn--primary）
-        const findSizeButton = document.querySelector('.intro-btn--primary');
-        
-        if (findSizeButton) {
-            // 手機版：更寬鬆的可見性檢查
-            const isVisible = isMobile 
-                ? (findSizeButton.offsetWidth > 0 || findSizeButton.offsetHeight > 0)
-                : (findSizeButton.offsetParent !== null);
-            
-            if (isVisible) {
-                console.log('✅ 找到「找尋合適尺寸」按鈕，自動點擊');
-                buttonClicked = true;
-                
-                // 點擊按鈕（手機版可能需要多種方式）
-                if (isMobile) {
-                    // 手機版：嘗試觸控事件
-                    try {
-                        findSizeButton.dispatchEvent(new TouchEvent('touchstart', { bubbles: true }));
-                        findSizeButton.click();
-                        findSizeButton.dispatchEvent(new TouchEvent('touchend', { bubbles: true }));
-                        console.log('  ✓ 手機版觸控事件序列完成');
-                    } catch (e) {
-                        // 降級：只用 click
-                        findSizeButton.click();
-                        console.log('  ✓ 降級使用 click 事件');
-                    }
-                } else {
-                    // 電腦版：直接 click
-                    findSizeButton.click();
-                }
-                
-                // 等待按鈕點擊後的頁面切換，然後處理 iframe
-                setTimeout(() => {
-                    handleIframeAndUrlCleanup(iframe, config);
-                }, buttonDelay);
-                
-                return true;
+        // 手機版：使用觸控事件序列確保點擊有效
+        if (isMobile) {
+            try {
+                // 觸控事件序列
+                button.dispatchEvent(new TouchEvent('touchstart', { 
+                    bubbles: true, 
+                    cancelable: true,
+                    touches: [new Touch({ identifier: 0, target: button, clientX: 0, clientY: 0 })]
+                }));
+                button.click();
+                button.dispatchEvent(new TouchEvent('touchend', { 
+                    bubbles: true, 
+                    cancelable: true,
+                    changedTouches: [new Touch({ identifier: 0, target: button, clientX: 0, clientY: 0 })]
+                }));
+                console.log('📱 手機版觸控事件序列完成');
+            } catch (e) {
+                // 降級：只用 click
+                button.click();
+                console.log('📱 降級使用 click 事件');
             }
+        } else {
+            // 電腦版：直接 click
+            button.click();
         }
         
-        return false;
-    }
-    
-    // 立即嘗試
-    if (tryClickButton()) {
-        return;
-    }
-    
-    // 使用輪詢方式持續檢查（更可靠）
-    const pollIntervalId = setInterval(() => {
-        if (buttonClicked || checkAttempts >= maxCheckAttempts) {
-            clearInterval(pollIntervalId);
-            
-            if (!buttonClicked) {
-                console.warn('⚠️ 未找到「找尋合適尺寸」按鈕，直接處理 iframe');
-                handleIframeAndUrlCleanup(iframe, config);
-            }
-            return;
-        }
-        
-        tryClickButton();
-    }, pollInterval); // 使用動態間隔（手機 150ms / 電腦 200ms）
-    
-    // 同時使用 MutationObserver 作為補充（DOM 變化時立即檢查）
-    const buttonObserver = new MutationObserver((mutations) => {
-        if (!buttonClicked && tryClickButton()) {
-            buttonObserver.disconnect();
-            clearInterval(pollIntervalId);
-        }
-    });
-    
-    buttonObserver.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
-    
-    // 動態超時（手機 15 秒 / 電腦 10 秒）
-    const timeout = isMobile ? 15000 : 10000;
-    setTimeout(() => {
-        buttonObserver.disconnect();
-        clearInterval(pollIntervalId);
-        
-        if (!buttonClicked) {
-            console.warn(`⚠️ ${timeout}ms 超時，直接處理 iframe`);
+        // 等待按鈕點擊後的頁面切換，然後處理 iframe
+        setTimeout(() => {
             handleIframeAndUrlCleanup(iframe, config);
-        }
-    }, timeout);
+        }, buttonDelay);
+    }
+    
+    // 檢查按鈕是否準備就緒
+    function isButtonReady(button) {
+        // 手機版：更寬鬆的可見性檢查
+        const isVisible = isMobile 
+            ? (button.offsetWidth > 0 || button.offsetHeight > 0)
+            : (button.offsetParent !== null);
+        
+        const isClickable = !button.disabled && 
+                           !button.hasAttribute('disabled') && 
+                           button.style.display !== 'none' &&
+                           button.style.visibility !== 'hidden';
+        
+        return isVisible && isClickable;
+    }
+    
+    // 使用穩定的按鈕查找器
+    const findSizeButtonFinder = new StableButtonFinder('.intro-btn--primary', {
+        onFound: () => {
+            const button = document.querySelector('.intro-btn--primary');
+            if (button && isButtonReady(button)) {
+                clickFindSizeButton(button);
+            }
+        },
+        onTimeout: () => {
+            console.warn('⚠️ 未找到「找尋合適尺寸」按鈕，直接處理 iframe');
+            handleIframeAndUrlCleanup(iframe, config);
+        },
+        isMobile: isMobile,
+        timeout: isMobile ? 15000 : 10000 // 手機版給更多時間
+    });
+    
+    findSizeButtonFinder.start();
 }
 
-// 處理 iframe 載入和 URL 清除（優化版）
+// 處理 iframe 載入和 URL 清除（優化版 - 支援無痕模式）
 function handleIframeAndUrlCleanup(iframe, config = {}) {
-    // 獲取 access_token 和用戶信息
+    // 檢查是否為無痕模式
+    const isIncognito = incognitoHandler.isIncognitoMode();
+    console.log(`🔍 Iframe 登入處理，無痕模式: ${isIncognito ? '是' : '否'}`);
+    
+    // 獲取 access_token 和用戶信息（支援無痕模式）
     const urlParams = new URLSearchParams(window.location.search);
-    const accessToken = urlParams.get('access_token');
-    const userInfoStr = localStorage.getItem('inf_google_user_info');
+    let accessToken = urlParams.get('access_token');
+    let userInfoStr = localStorage.getItem('inf_google_user_info');
+    
+    // 無痕模式降級：從 URL 參數獲取
+    if (isIncognito && !accessToken) {
+        accessToken = urlParams.get('incognito_token');
+        const userInfoParam = urlParams.get('incognito_user_info');
+        if (userInfoParam) {
+            try {
+                userInfoStr = decodeURIComponent(userInfoParam);
+            } catch (e) {
+                console.warn('⚠️ 解析無痕模式用戶信息失敗:', e);
+            }
+        }
+    }
     
     if (!accessToken) {
         console.warn('⚠️ 沒有 access_token，跳過 iframe 登入處理');
@@ -406,10 +784,27 @@ function handleIframeAndUrlCleanup(iframe, config = {}) {
             // 移除監聽器
             window.removeEventListener('message', confirmHandler);
             
-            // ✅ 清除 parent 的 localStorage（iframe 已保存，不需要保留在 parent）
-            localStorage.removeItem('inf_google_access_token');
-            localStorage.removeItem('inf_google_user_info');
-            console.log('🗑️ 已清除 parent localStorage 中的登入信息（iframe 已保存）');
+            // ✅ 清除 parent 的存儲（iframe 已保存，不需要保留在 parent）
+            try {
+                localStorage.removeItem('inf_google_access_token');
+                localStorage.removeItem('inf_google_user_info');
+                console.log('🗑️ 已清除 parent localStorage 中的登入信息（iframe 已保存）');
+            } catch (e) {
+                console.warn('⚠️ 清除 localStorage 失敗:', e);
+            }
+            
+            // 無痕模式：清除 URL 參數
+            if (isIncognito) {
+                try {
+                    const url = new URL(window.location);
+                    url.searchParams.delete('incognito_token');
+                    url.searchParams.delete('incognito_user_info');
+                    window.history.replaceState({}, '', url);
+                    console.log('🗑️ 已清除無痕模式 URL 參數');
+                } catch (e) {
+                    console.warn('⚠️ 清除 URL 參數失敗:', e);
+                }
+            }
             
             // 立即清除 URL（不再等待）
             waitForTokenSaveAndClearUrl(config);
@@ -487,20 +882,25 @@ function handleIframeAndUrlCleanup(iframe, config = {}) {
     startSmartPolling();
 }
 
-// 等待 token 保存完成後再清除 URL
+// 等待 token 保存完成後再清除 URL（支援無痕模式）
 function waitForTokenSaveAndClearUrl(config = {}) {
+    // 檢查是否為無痕模式
+    const isIncognito = incognitoHandler.isIncognitoMode();
+    console.log(`🔍 URL 清除處理，無痕模式: ${isIncognito ? '是' : '否'}`);
+    
     // 檢查是否有 access_token 在 URL 中
     const urlParams = new URLSearchParams(window.location.search);
     const urlHash = window.location.hash;
     const hasAccessToken = urlParams.get('access_token') || urlHash.includes('access_token=');
+    const hasIncognitoToken = urlParams.get('incognito_token');
     
-    if (!hasAccessToken) {
+    if (!hasAccessToken && !hasIncognitoToken) {
         // 沒有 access_token，直接清除 URL
         clearUrlParameters();
         return;
     }
     
-    // 有 access_token，等待保存到 localStorage
+    // 有 access_token，等待保存到存儲
     let attempts = 0;
     const maxAttempts = config.maxAttempts || 50; // 最多等待 5 秒 (50 * 100ms)
     const checkInterval = config.checkInterval || 100; // 檢查間隔
@@ -508,8 +908,18 @@ function waitForTokenSaveAndClearUrl(config = {}) {
     const checkTokenSaved = () => {
         attempts++;
         
-        // 檢查 token 是否已保存到 localStorage
-        const savedToken = localStorage.getItem('inf_google_access_token');
+        // 檢查 token 是否已保存到存儲
+        let savedToken = null;
+        try {
+            savedToken = localStorage.getItem('inf_google_access_token');
+        } catch (e) {
+            console.warn('⚠️ 檢查 localStorage 失敗:', e);
+        }
+        
+        // 無痕模式：檢查 URL 參數
+        if (isIncognito && !savedToken) {
+            savedToken = urlParams.get('incognito_token');
+        }
         
         if (savedToken) {
             // Token 已保存，清除 URL
@@ -528,10 +938,37 @@ function waitForTokenSaveAndClearUrl(config = {}) {
     checkTokenSaved();
 }
 
-// 清除 URL 參數的函數
+// 清除 URL 參數的函數（支援無痕模式）
 function clearUrlParameters() {
-    const cleanUrl = window.location.origin + window.location.pathname;
-    window.history.replaceState({}, document.title, cleanUrl);
+    try {
+        const url = new URL(window.location);
+        
+        // 清除標準 OAuth 參數
+        url.searchParams.delete('access_token');
+        url.searchParams.delete('code');
+        url.searchParams.delete('state');
+        url.searchParams.delete('scope');
+        
+        // 清除無痕模式參數
+        url.searchParams.delete('incognito_token');
+        url.searchParams.delete('incognito_user_info');
+        
+        // 清除其他可能的存儲參數
+        const storageParams = Array.from(url.searchParams.keys())
+            .filter(key => key.startsWith('storage_'));
+        storageParams.forEach(key => url.searchParams.delete(key));
+        
+        // 更新 URL
+        const cleanUrl = url.origin + url.pathname + (url.search ? url.search : '');
+        window.history.replaceState({}, document.title, cleanUrl);
+        
+        console.log('✅ 已清除所有 URL 參數');
+    } catch (e) {
+        console.warn('⚠️ 清除 URL 參數失敗，使用降級方案:', e);
+        // 降級方案：只清除基本路徑
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+    }
 }
 
 // 初始化 OAuth 回調處理
