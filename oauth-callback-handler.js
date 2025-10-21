@@ -14,6 +14,8 @@ class SafeStorage {
         if (!this.storageAvailable) {
             console.warn('⚠️ localStorage 不可用（可能是無痕模式），使用內存存儲');
             this.isIncognito = true;
+        } else {
+            console.log('✅ localStorage 可用');
         }
     }
     
@@ -21,9 +23,11 @@ class SafeStorage {
         try {
             const testKey = '__storage_test__';
             localStorage.setItem(testKey, 'test');
+            const testValue = localStorage.getItem(testKey);
             localStorage.removeItem(testKey);
-            return true;
+            return testValue === 'test';
         } catch (e) {
+            console.warn('⚠️ localStorage 檢測失敗:', e.message);
             return false;
         }
     }
@@ -35,11 +39,11 @@ class SafeStorage {
                 console.log(`✅ 已保存到 localStorage: ${key}`);
             } else {
                 this.memoryStorage.set(key, value);
-                console.log(`✅ 已保存到內存存儲: ${key}`);
+                console.log(`✅ 已保存到內存存儲: ${key} (無痕模式)`);
             }
             return true;
         } catch (e) {
-            console.warn(`⚠️ localStorage 失敗，使用內存存儲: ${key}`, e);
+            console.warn(`⚠️ localStorage 失敗，使用內存存儲: ${key}`);
             this.memoryStorage.set(key, value);
             this.storageAvailable = false;
             return true;
@@ -88,7 +92,7 @@ class SafeStorage {
         }
     }
     
-    // 從 URL 提取 access_token 並保存
+    // 從 URL 提取 access_token 並保存（同步版本）
     extractAndSaveTokenFromUrl() {
         const urlParams = new URLSearchParams(window.location.search);
         const urlHash = window.location.hash;
@@ -105,8 +109,10 @@ class SafeStorage {
             console.log('🔍 從 URL 提取到 access_token');
             this.setItem('inf_google_access_token', accessToken);
             
-            // 立即獲取用戶信息
-            this.fetchAndSaveUserInfo(accessToken);
+            // ✅ 異步獲取用戶信息（不阻塞主流程）
+            this.fetchAndSaveUserInfo(accessToken).catch(err => {
+                console.error('❌ 獲取用戶信息失敗:', err);
+            });
             
             return accessToken;
         }
@@ -794,8 +800,26 @@ function clearUrlParameters() {
 
 // 初始化 OAuth 回調處理
 function initOAuthCallbackHandler(config = {}) {
-    // 頁面載入時檢查 OAuth 回調
-    window.addEventListener('load', () => checkOAuthCallback(config));
+    console.log('🔧 初始化 OAuth 回調處理器');
+    
+    // ✅ 立即檢查（不等待 load 事件）
+    if (document.readyState === 'loading') {
+        // 頁面還在載入中
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('📄 DOMContentLoaded 觸發');
+            checkOAuthCallback(config);
+        });
+    } else {
+        // 頁面已載入完成，立即執行
+        console.log('📄 頁面已載入，立即檢查');
+        checkOAuthCallback(config);
+    }
+    
+    // 同時監聽 load 事件作為備用
+    window.addEventListener('load', () => {
+        console.log('📄 Window load 觸發');
+        checkOAuthCallback(config);
+    });
 }
 
 function onloadIframeSendUrl(iframeId) {
@@ -844,3 +868,29 @@ window.handleIframeAndUrlCleanup = handleIframeAndUrlCleanup;
 window.waitForTokenSaveAndClearUrl = waitForTokenSaveAndClearUrl;
 window.clearUrlParameters = clearUrlParameters;
 window.onloadIframeSendUrl = onloadIframeSendUrl;
+window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
+
+// ✅ 自動檢查：如果 URL 中有 access_token，立即處理（不需要手動調用）
+(function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlHash = window.location.hash;
+    const hasAccessToken = urlParams.get('access_token') || urlHash.includes('access_token=');
+    
+    if (hasAccessToken) {
+        console.log('🔍 檢測到 URL 中有 access_token，自動啟動 OAuth 處理');
+        
+        // 立即執行一次檢查
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                console.log('📄 DOMContentLoaded - 執行 OAuth 檢查');
+                // 檢查是否有配置，否則使用默認配置
+                const config = window.oauthCallbackConfig || {};
+                checkOAuthCallback(config);
+            });
+        } else {
+            console.log('📄 頁面已載入 - 立即執行 OAuth 檢查');
+            const config = window.oauthCallbackConfig || {};
+            checkOAuthCallback(config);
+        }
+    }
+})();
