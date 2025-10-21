@@ -277,53 +277,50 @@ class StableButtonFinder {
 function checkOAuthCallback(config = {}) {
     console.log('🔍 開始 OAuth 回調檢查...');
     
+    // ✅ 手機 Safari 檢測
+    const isMobileSafari = /iPhone|iPad|iPod/.test(navigator.userAgent) && 
+                          /Safari/.test(navigator.userAgent) && 
+                          !/Chrome/.test(navigator.userAgent);
+    
+    if (isMobileSafari) {
+        console.log('📱 檢測到手機 Safari，使用特殊處理');
+    }
+    
     // 先從 URL 提取並保存 access_token（支援無痕模式）
     const accessToken = safeStorage.extractAndSaveTokenFromUrl();
     
     if (accessToken) {
         console.log('✅ 找到 access_token，開始處理 OAuth 回調');
         
-        // 根據配置決定處理方式
-        if (config.mode === 'size') {
-            // Size 模式：使用 sessionStorage 和 showIframe
-            const savedIframeType = sessionStorage.getItem('current_iframe_type');
-            
-            if (savedIframeType) {
-                // 自動重開對應的 modal
-                if (typeof showIframe === 'function') {
-                    showIframe(savedIframeType);
-                }
-                
-                // 等待 iframe 載入完成後清除 URL 參數
-                const iframe = document.getElementById(config.iframeId || 'inffits_ctryon_window');
-                if (iframe) {
-                    iframe.onload = function() {
-                        // 發送 URL 到 iframe
-                        iframe.contentWindow.postMessage(
-                            { url: window.location.href },
-                            "*"
-                        );
-                        
-                        // 等待 token 保存完成後再清除 URL
-                        waitForTokenSaveAndClearUrl();
-                    };
-                }
-            }
-        } else if (config.mode === 'panel') {
-            // Panel 模式：處理彈窗和自動點擊流程
-            handleOAuthCallbackForPanel(config);
+        // ✅ 手機 Safari：額外延遲確保 DOM 準備好
+        if (isMobileSafari) {
+            setTimeout(() => {
+                processOAuthCallback(config);
+            }, 200);
         } else {
-            // 標準模式：使用 jQuery modal
-            $("#inffits_cblock--overlay").fadeIn();
-            $(".ai-pd-container__trigger").removeClass('ai-pd-container__trigger--search')
-                                          .addClass('ai-pd-container__trigger--close');
+            processOAuthCallback(config);
+        }
+    }
+}
+
+// 處理 OAuth 回調的實際邏輯
+function processOAuthCallback(config) {
+    // 根據配置決定處理方式
+    if (config.mode === 'size') {
+        // Size 模式：使用 sessionStorage 和 showIframe
+        const savedIframeType = sessionStorage.getItem('current_iframe_type');
+        
+        if (savedIframeType) {
+            // 自動重開對應的 modal
+            if (typeof showIframe === 'function') {
+                showIframe(savedIframeType);
+            }
             
-            // 等待 iframe 處理完成後清除 URL 參數
-            const iframe = document.getElementById(config.iframeId || 'inffits_tryon_window');
+            // 等待 iframe 載入完成後清除 URL 參數
+            const iframe = document.getElementById(config.iframeId || 'inffits_ctryon_window');
             if (iframe) {
-                // 使用 setTimeout 確保 iframe 已經處理完 access_token
-                setTimeout(() => {
-                    // 發送 URL 到 iframe（讓 iframe 可以處理 OAuth）
+                iframe.onload = function() {
+                    // 發送 URL 到 iframe
                     iframe.contentWindow.postMessage(
                         { url: window.location.href },
                         "*"
@@ -331,9 +328,33 @@ function checkOAuthCallback(config = {}) {
                     
                     // 等待 token 保存完成後再清除 URL
                     waitForTokenSaveAndClearUrl();
-                    
-                }, config.delay || 1000); // 可配置延遲時間
+                };
             }
+        }
+    } else if (config.mode === 'panel') {
+        // Panel 模式：處理彈窗和自動點擊流程
+        handleOAuthCallbackForPanel(config);
+    } else {
+        // 標準模式：使用 jQuery modal
+        $("#inffits_cblock--overlay").fadeIn();
+        $(".ai-pd-container__trigger").removeClass('ai-pd-container__trigger--search')
+                                      .addClass('ai-pd-container__trigger--close');
+        
+        // 等待 iframe 處理完成後清除 URL 參數
+        const iframe = document.getElementById(config.iframeId || 'inffits_tryon_window');
+        if (iframe) {
+            // 使用 setTimeout 確保 iframe 已經處理完 access_token
+            setTimeout(() => {
+                // 發送 URL 到 iframe（讓 iframe 可以處理 OAuth）
+                iframe.contentWindow.postMessage(
+                    { url: window.location.href },
+                    "*"
+                );
+                
+                // 等待 token 保存完成後再清除 URL
+                waitForTokenSaveAndClearUrl();
+                
+            }, config.delay || 1000); // 可配置延遲時間
         }
     }
 }
@@ -843,7 +864,7 @@ window.clearUrlParameters = clearUrlParameters;
 window.onloadIframeSendUrl = onloadIframeSendUrl;
 window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
 
-// ✅ 自動檢查：如果 URL 中有 access_token，立即處理（不需要手動調用）
+// ✅ 自動檢查：如果 URL 中有 access_token，立即處理（手機 Safari 修復版）
 (function() {
     const urlParams = new URLSearchParams(window.location.search);
     const urlHash = window.location.hash;
@@ -852,18 +873,65 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
     if (hasAccessToken) {
         console.log('🔍 檢測到 URL 中有 access_token，自動啟動 OAuth 處理');
         
-        // 立即執行一次檢查
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                console.log('📄 DOMContentLoaded - 執行 OAuth 檢查');
-                // 檢查是否有配置，否則使用默認配置
-                const config = window.oauthCallbackConfig || {};
-                checkOAuthCallback(config);
-            });
-        } else {
-            console.log('📄 頁面已載入 - 立即執行 OAuth 檢查');
+        // 檢測是否為手機 Safari
+        const isMobileSafari = /iPhone|iPad|iPod/.test(navigator.userAgent) && 
+                              /Safari/.test(navigator.userAgent) && 
+                              !/Chrome/.test(navigator.userAgent);
+        
+        let executed = false;
+        
+        function executeOAuthCheck() {
+            if (executed) return;
+            executed = true;
+            
+            console.log('📄 執行 OAuth 檢查');
             const config = window.oauthCallbackConfig || {};
             checkOAuthCallback(config);
+        }
+        
+        // 1. 立即執行（如果頁面已載入）
+        if (document.readyState === 'complete') {
+            console.log('📄 頁面已完全載入 - 立即執行');
+            executeOAuthCheck();
+        }
+        
+        // 2. DOMContentLoaded 事件
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                console.log('📄 DOMContentLoaded 觸發');
+                executeOAuthCheck();
+            });
+        }
+        
+        // 3. Window load 事件（手機 Safari 備用）
+        window.addEventListener('load', () => {
+            console.log('📄 Window load 觸發');
+            executeOAuthCheck();
+        });
+        
+        // 4. ✅ 手機 Safari 特殊處理：多重延遲執行
+        if (isMobileSafari) {
+            console.log('📱 手機 Safari 特殊處理');
+            setTimeout(() => {
+                console.log('📄 手機 Safari 延遲 100ms 執行');
+                executeOAuthCheck();
+            }, 100);
+            
+            setTimeout(() => {
+                console.log('📄 手機 Safari 延遲 500ms 執行');
+                executeOAuthCheck();
+            }, 500);
+            
+            setTimeout(() => {
+                console.log('📄 手機 Safari 延遲 1000ms 執行');
+                executeOAuthCheck();
+            }, 1000);
+        } else {
+            // 非手機 Safari：單一延遲
+            setTimeout(() => {
+                console.log('📄 延遲 100ms 執行');
+                executeOAuthCheck();
+            }, 100);
         }
     }
 })();
