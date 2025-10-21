@@ -141,7 +141,19 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
         
         if (triggerBtn) {
             console.log('✅ 找到 #panelTagBtn，準備點擊');
-            triggerBtn.click();
+            // 確保按鈕可見且可點擊
+            if (triggerBtn.offsetParent !== null && !triggerBtn.disabled) {
+                triggerBtn.click();
+            } else {
+                console.warn('⚠️ #panelTagBtn 存在但不可見或已禁用，等待一下再試');
+                setTimeout(() => {
+                    if (triggerBtn.offsetParent !== null && !triggerBtn.disabled) {
+                        triggerBtn.click();
+                    } else {
+                        console.error('❌ #panelTagBtn 仍然不可用');
+                    }
+                }, 1000);
+            }
             
             // 設置雙重保險：transitionend 事件 + 定時器
             let transitionFired = false;
@@ -188,12 +200,79 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
     
     window.addEventListener('message', iframeReadyHandler);
     
-    // 安全機制：10 秒後如果還沒收到通知，強制執行
+    // 使用 MutationObserver 監聽 #panelTagBtn 的出現
+    const observer = new MutationObserver((mutations) => {
+        if (buttonClicked) return;
+        
+        const triggerBtn = document.getElementById('panelTagBtn');
+        if (triggerBtn) {
+            console.log('👀 MutationObserver 檢測到 #panelTagBtn 元素存在');
+            console.log('🔍 按鈕狀態檢查:', {
+                exists: !!triggerBtn,
+                visible: triggerBtn.offsetParent !== null,
+                disabled: triggerBtn.disabled,
+                display: getComputedStyle(triggerBtn).display,
+                visibility: getComputedStyle(triggerBtn).visibility
+            });
+            
+            if (triggerBtn.offsetParent !== null) {
+                console.log('✅ #panelTagBtn 可見，準備點擊');
+                observer.disconnect();
+                clickButtonAndProceed();
+            }
+        }
+    });
+    
+    // 開始監聽 DOM 變化
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class']
+    });
+    
+    // 定期檢查 #panelTagBtn 是否存在（備用機制）
+    const checkInterval = setInterval(() => {
+        if (buttonClicked) {
+            clearInterval(checkInterval);
+            return;
+        }
+        
+        const triggerBtn = document.getElementById('panelTagBtn');
+        if (triggerBtn && triggerBtn.offsetParent !== null) {
+            console.log('⏰ 定期檢查發現 #panelTagBtn 可見');
+            clearInterval(checkInterval);
+            observer.disconnect();
+            clickButtonAndProceed();
+        }
+    }, 500); // 每 500ms 檢查一次
+    
+    // 安全機制：10 秒後如果還沒收到通知，先檢查 #panelTagBtn 是否存在
     setTimeout(() => {
         if (!buttonClicked) {
-            console.warn('⚠️ 10 秒內未收到 iframe 通知，強制執行');
+            console.warn('⚠️ 10 秒內未收到 iframe 通知，檢查 #panelTagBtn 是否存在');
             window.removeEventListener('message', iframeReadyHandler);
-            clickButtonAndProceed();
+            observer.disconnect();
+            clearInterval(checkInterval);
+            
+            // 先檢查 #panelTagBtn 是否存在
+            const triggerBtn = document.getElementById('panelTagBtn');
+            if (triggerBtn) {
+                console.log('✅ 找到 #panelTagBtn，直接執行');
+                clickButtonAndProceed();
+            } else {
+                console.warn('❌ #panelTagBtn 不存在，等待更長時間...');
+                // 如果按鈕不存在，再等待 5 秒
+                setTimeout(() => {
+                    const retryBtn = document.getElementById('panelTagBtn');
+                    if (retryBtn) {
+                        console.log('✅ 重試後找到 #panelTagBtn');
+                        clickButtonAndProceed();
+                    } else {
+                        console.error('❌ 最終仍未找到 #panelTagBtn，可能頁面載入有問題');
+                    }
+                }, 5000);
+            }
         }
     }, 10000);
 }
