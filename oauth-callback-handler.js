@@ -277,29 +277,16 @@ class StableButtonFinder {
 function checkOAuthCallback(config = {}) {
     console.log('🔍 開始 OAuth 回調檢查...');
     
-    // ✅ 手機 Safari 檢測
-    const isMobileSafari = /iPhone|iPad|iPod/.test(navigator.userAgent) && 
-                          /Safari/.test(navigator.userAgent) && 
-                          !/Chrome/.test(navigator.userAgent);
-    
-    if (isMobileSafari) {
-        console.log('📱 檢測到手機 Safari，使用特殊處理');
-    }
-    
     // 先從 URL 提取並保存 access_token（支援無痕模式）
     const accessToken = safeStorage.extractAndSaveTokenFromUrl();
     
     if (accessToken) {
         console.log('✅ 找到 access_token，開始處理 OAuth 回調');
         
-        // ✅ 手機 Safari：額外延遲確保 DOM 準備好
-        if (isMobileSafari) {
-            setTimeout(() => {
-                processOAuthCallback(config);
-            }, 200);
-        } else {
+        // 使用 requestAnimationFrame 確保在正確的時機執行
+        requestAnimationFrame(() => {
             processOAuthCallback(config);
-        }
+        });
     }
 }
 
@@ -864,7 +851,7 @@ window.clearUrlParameters = clearUrlParameters;
 window.onloadIframeSendUrl = onloadIframeSendUrl;
 window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
 
-// ✅ 自動檢查：如果 URL 中有 access_token，立即處理（手機 Safari 修復版）
+// ✅ 自動檢查：如果 URL 中有 access_token，立即處理（嚴謹的事件驅動方式）
 (function() {
     const urlParams = new URLSearchParams(window.location.search);
     const urlHash = window.location.hash;
@@ -879,6 +866,7 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
                               !/Chrome/.test(navigator.userAgent);
         
         let executed = false;
+        let eventListenersAdded = false;
         
         function executeOAuthCheck() {
             if (executed) return;
@@ -889,49 +877,118 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
             checkOAuthCallback(config);
         }
         
-        // 1. 立即執行（如果頁面已載入）
-        if (document.readyState === 'complete') {
-            console.log('📄 頁面已完全載入 - 立即執行');
+        // 嚴謹的 DOM 準備檢查函數
+        function isDOMReady() {
+            return document.readyState === 'complete' || 
+                   document.readyState === 'interactive';
+        }
+        
+        // 嚴謹的關鍵元素檢查函數
+        function areKeyElementsReady() {
+            // 檢查必要的 DOM 元素是否已存在
+            const hasBody = document.body !== null;
+            const hasHead = document.head !== null;
+            const hasDocumentElement = document.documentElement !== null;
+            
+            return hasBody && hasHead && hasDocumentElement;
+        }
+        
+        // 嚴謹的執行函數
+        function tryExecuteOAuthCheck() {
+            if (executed) return;
+            
+            // 檢查 DOM 是否準備好
+            if (!isDOMReady()) {
+                console.log('📄 DOM 尚未準備好，等待中...');
+                return;
+            }
+            
+            // 檢查關鍵元素是否存在
+            if (!areKeyElementsReady()) {
+                console.log('📄 關鍵元素尚未準備好，等待中...');
+                return;
+            }
+            
+            // 手機 Safari 額外檢查：確保 window 對象完全初始化
+            if (isMobileSafari) {
+                if (typeof window === 'undefined' || !window.document) {
+                    console.log('📱 手機 Safari：window 對象尚未完全初始化，等待中...');
+                    return;
+                }
+            }
+            
+            console.log('📄 所有條件滿足，執行 OAuth 檢查');
             executeOAuthCheck();
         }
         
-        // 2. DOMContentLoaded 事件
+        // 1. 立即檢查（如果所有條件都滿足）
+        if (isDOMReady() && areKeyElementsReady()) {
+            console.log('📄 頁面已完全準備好 - 立即執行');
+            tryExecuteOAuthCheck();
+        }
+        
+        // 2. DOMContentLoaded 事件（最可靠的方式）
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => {
                 console.log('📄 DOMContentLoaded 觸發');
-                executeOAuthCheck();
+                tryExecuteOAuthCheck();
             });
         }
         
-        // 3. Window load 事件（手機 Safari 備用）
+        // 3. Window load 事件（確保所有資源載入完成）
         window.addEventListener('load', () => {
             console.log('📄 Window load 觸發');
-            executeOAuthCheck();
+            tryExecuteOAuthCheck();
         });
         
-        // 4. ✅ 手機 Safari 特殊處理：多重延遲執行
-        if (isMobileSafari) {
-            console.log('📱 手機 Safari 特殊處理');
-            setTimeout(() => {
-                console.log('📄 手機 Safari 延遲 100ms 執行');
-                executeOAuthCheck();
-            }, 100);
+        // 4. 手機 Safari 特殊處理：使用 MutationObserver 監聽 DOM 變化
+        if (isMobileSafari && !eventListenersAdded) {
+            console.log('📱 手機 Safari：使用 MutationObserver 監聽 DOM 變化');
+            eventListenersAdded = true;
             
-            setTimeout(() => {
-                console.log('📄 手機 Safari 延遲 500ms 執行');
-                executeOAuthCheck();
-            }, 500);
+            const observer = new MutationObserver((mutations) => {
+                if (executed) {
+                    observer.disconnect();
+                    return;
+                }
+                
+                // 檢查是否有重要的 DOM 變化
+                const hasSignificantChanges = mutations.some(mutation => 
+                    mutation.type === 'childList' && 
+                    mutation.addedNodes.length > 0
+                );
+                
+                if (hasSignificantChanges && isDOMReady() && areKeyElementsReady()) {
+                    console.log('📱 手機 Safari：檢測到重要 DOM 變化，執行 OAuth 檢查');
+                    tryExecuteOAuthCheck();
+                    observer.disconnect();
+                }
+            });
             
+            // 開始監聽
+            observer.observe(document.documentElement, {
+                childList: true,
+                subtree: true
+            });
+            
+            // 10 秒後停止監聽（安全機制）
             setTimeout(() => {
-                console.log('📄 手機 Safari 延遲 1000ms 執行');
-                executeOAuthCheck();
-            }, 1000);
-        } else {
-            // 非手機 Safari：單一延遲
-            setTimeout(() => {
-                console.log('📄 延遲 100ms 執行');
-                executeOAuthCheck();
-            }, 100);
+                observer.disconnect();
+                if (!executed) {
+                    console.log('📱 手機 Safari：MutationObserver 超時，強制執行');
+                    tryExecuteOAuthCheck();
+                }
+            }, 10000);
+        }
+        
+        // 5. 最後的安全機制：使用 requestAnimationFrame 確保在下一幀執行
+        if (!executed) {
+            requestAnimationFrame(() => {
+                if (!executed) {
+                    console.log('📄 requestAnimationFrame 觸發');
+                    tryExecuteOAuthCheck();
+                }
+            });
         }
     }
 })();
