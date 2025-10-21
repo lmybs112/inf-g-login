@@ -4,31 +4,71 @@
  * 包含無痕模式檢測和處理
  */
 
-// 簡化的無痕模式處理器（專注於確保 iframe 能收到登入信息）
+// 無痕模式處理器（確保在無痕模式下也能正常登入）
 class IncognitoModeHandler {
     constructor() {
         this.isIncognito = false;
         this.storageAvailable = true;
+        this.memoryStorage = new Map(); // 內存存儲作為降級方案
         this.init();
     }
     
     init() {
+        this.detectIncognitoMode();
         this.checkStorageAvailability();
+        console.log(`🔍 無痕模式檢測: ${this.isIncognito ? '是' : '否'}`);
         console.log(`🔍 存儲可用性: ${this.storageAvailable ? '是' : '否'}`);
+    }
+    
+    // 檢測無痕模式
+    detectIncognitoMode() {
+        try {
+            // 方法1: 檢查 localStorage 是否可用
+            const testKey = '__incognito_test__';
+            localStorage.setItem(testKey, 'test');
+            localStorage.removeItem(testKey);
+            
+            // 方法2: 檢查 sessionStorage 是否可用
+            sessionStorage.setItem(testKey, 'test');
+            sessionStorage.removeItem(testKey);
+            
+            this.isIncognito = false;
+        } catch (e) {
+            this.isIncognito = true;
+        }
+        
+        // 方法3: 檢查 IndexedDB 是否可用（某些瀏覽器的無痕模式會限制 IndexedDB）
+        if (!this.isIncognito) {
+            try {
+                const request = indexedDB.open('__incognito_test__');
+                request.onerror = () => {
+                    this.isIncognito = true;
+                };
+                request.onsuccess = () => {
+                    request.result.close();
+                    indexedDB.deleteDatabase('__incognito_test__');
+                };
+            } catch (e) {
+                this.isIncognito = true;
+            }
+        }
     }
     
     // 檢查存儲可用性
     checkStorageAvailability() {
         try {
-            // 測試 localStorage
             const testKey = '__storage_test__';
             localStorage.setItem(testKey, 'test');
             localStorage.removeItem(testKey);
             this.storageAvailable = true;
         } catch (e) {
-            console.warn('⚠️ localStorage 不可用，可能是無痕模式或存儲被禁用');
             this.storageAvailable = false;
         }
+    }
+    
+    // 獲取無痕模式狀態
+    isIncognitoMode() {
+        return this.isIncognito;
     }
     
     // 獲取存儲可用性
@@ -36,41 +76,73 @@ class IncognitoModeHandler {
         return this.storageAvailable;
     }
     
-    // 安全的存儲方法
+    // 安全的存儲方法（支援無痕模式降級）
     safeSetItem(key, value) {
         try {
-            localStorage.setItem(key, value);
-            return true;
+            if (this.storageAvailable) {
+                localStorage.setItem(key, value);
+                return true;
+            } else {
+                // 降級到內存存儲
+                this.memoryStorage.set(key, value);
+                console.log(`📝 使用內存存儲: ${key}`);
+                return true;
+            }
         } catch (e) {
-            console.warn(`⚠️ localStorage 存儲失敗: ${key}`, e);
-            return false;
+            // 降級到內存存儲
+            this.memoryStorage.set(key, value);
+            console.log(`📝 降級到內存存儲: ${key}`);
+            return true;
         }
     }
     
-    // 安全的獲取方法
+    // 安全的獲取方法（支援無痕模式降級）
     safeGetItem(key) {
         try {
-            return localStorage.getItem(key);
+            if (this.storageAvailable) {
+                return localStorage.getItem(key);
+            } else {
+                // 從內存存儲獲取
+                return this.memoryStorage.get(key) || null;
+            }
         } catch (e) {
-            console.warn(`⚠️ localStorage 獲取失敗: ${key}`, e);
-            return null;
+            // 從內存存儲獲取
+            return this.memoryStorage.get(key) || null;
         }
     }
     
-    // 安全的移除方法
+    // 安全的移除方法（支援無痕模式降級）
     safeRemoveItem(key) {
         try {
-            localStorage.removeItem(key);
+            if (this.storageAvailable) {
+                localStorage.removeItem(key);
+            }
+            // 同時清除內存存儲
+            this.memoryStorage.delete(key);
             return true;
         } catch (e) {
-            console.warn(`⚠️ localStorage 移除失敗: ${key}`, e);
-            return false;
+            // 只清除內存存儲
+            this.memoryStorage.delete(key);
+            return true;
+        }
+    }
+    
+    // 獲取所有存儲的鍵
+    getAllKeys() {
+        try {
+            if (this.storageAvailable) {
+                return Object.keys(localStorage);
+            } else {
+                return Array.from(this.memoryStorage.keys());
+            }
+        } catch (e) {
+            return Array.from(this.memoryStorage.keys());
         }
     }
 }
 
-// 創建全局存儲處理器
-const storageHandler = new IncognitoModeHandler();
+// 創建全局無痕模式處理器
+const incognitoHandler = new IncognitoModeHandler();
 
 // 穩定的按鈕查找器類別（替代不穩定的 setTimeout）
 class StableButtonFinder {
@@ -215,9 +287,10 @@ class StableButtonFinder {
     }
 }
 
-// 檢查 OAuth 回調並自動重開 modal（專注於確保 iframe 能收到登入信息）
+// 檢查 OAuth 回調並自動重開 modal（支援無痕模式）
 function checkOAuthCallback(config = {}) {
     console.log('🔍 OAuth 回調檢查開始');
+    console.log(`🔍 無痕模式: ${incognitoHandler.isIncognitoMode() ? '是' : '否'}`);
     
     const urlParams = new URLSearchParams(window.location.search);
     const urlHash = window.location.hash;
@@ -287,30 +360,30 @@ function checkOAuthCallback(config = {}) {
     }
 }
 
-// Panel 模式的 OAuth 回調處理（專注於確保 iframe 能收到登入信息）
+// Panel 模式的 OAuth 回調處理（支援無痕模式）
 function handleOAuthCallbackForPanel(config = {}) {
     console.log('🔍 Panel 模式 OAuth 處理開始');
     
-    // 立即保存 access_token 和用戶信息
+    // 立即保存 access_token 和用戶信息（支援無痕模式降級）
     const urlParams = new URLSearchParams(window.location.search);
     const accessToken = urlParams.get('access_token');
     
     if (accessToken) {
         // 使用安全的存儲方式
-        const tokenStored = storageHandler.safeSetItem('inf_google_access_token', accessToken);
+        const tokenStored = incognitoHandler.safeSetItem('inf_google_access_token', accessToken);
         if (tokenStored) {
-            console.log('✅ 已保存 access_token 到 localStorage');
+            console.log('✅ 已保存 access_token 到存儲');
         } else {
-            console.warn('⚠️ localStorage 存儲失敗，但會繼續處理');
+            console.warn('⚠️ 存儲失敗，但會繼續處理');
         }
         
         // 獲取用戶信息（不需要獲取 inf_id，iframe 會自己處理）
         fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${accessToken}`)
             .then(response => response.json())
             .then(userInfo => {
-                const userInfoStored = storageHandler.safeSetItem('inf_google_user_info', JSON.stringify(userInfo));
+                const userInfoStored = incognitoHandler.safeSetItem('inf_google_user_info', JSON.stringify(userInfo));
                 if (userInfoStored) {
-                    console.log('✅ Panel 模式：已保存 access_token 和 userInfo 到 localStorage');
+                console.log('✅ Panel 模式：已保存 access_token 和 userInfo');
                 } else {
                     console.warn('⚠️ 用戶信息存儲失敗，但會繼續處理');
                 }
@@ -542,14 +615,14 @@ function autoClickFindSizeButton(iframe, config = {}) {
     findSizeButtonFinder.start();
 }
 
-// 處理 iframe 載入和 URL 清除（專注於確保 iframe 能收到登入信息）
+// 處理 iframe 載入和 URL 清除（支援無痕模式）
 function handleIframeAndUrlCleanup(iframe, config = {}) {
     console.log('🔍 Iframe 登入處理開始');
     
-    // 獲取 access_token 和用戶信息
+    // 獲取 access_token 和用戶信息（支援無痕模式降級）
     const urlParams = new URLSearchParams(window.location.search);
     const accessToken = urlParams.get('access_token');
-    const userInfoStr = storageHandler.safeGetItem('inf_google_user_info');
+    const userInfoStr = incognitoHandler.safeGetItem('inf_google_user_info');
     
     if (!accessToken) {
         console.warn('⚠️ 沒有 access_token，跳過 iframe 登入處理');
@@ -588,13 +661,13 @@ function handleIframeAndUrlCleanup(iframe, config = {}) {
             window.removeEventListener('message', confirmHandler);
             
             // ✅ 清除 parent 的存儲（iframe 已保存，不需要保留在 parent）
-            const tokenRemoved = storageHandler.safeRemoveItem('inf_google_access_token');
-            const userInfoRemoved = storageHandler.safeRemoveItem('inf_google_user_info');
+            const tokenRemoved = incognitoHandler.safeRemoveItem('inf_google_access_token');
+            const userInfoRemoved = incognitoHandler.safeRemoveItem('inf_google_user_info');
             
             if (tokenRemoved && userInfoRemoved) {
-                console.log('🗑️ 已清除 parent localStorage 中的登入信息（iframe 已保存）');
+                console.log('🗑️ 已清除 parent 存儲中的登入信息（iframe 已保存）');
             } else {
-                console.warn('⚠️ 部分 localStorage 清除失敗，但 iframe 已收到登入信息');
+                console.warn('⚠️ 部分存儲清除失敗，但 iframe 已收到登入信息');
             }
             
             // 立即清除 URL（不再等待）
@@ -673,7 +746,7 @@ function handleIframeAndUrlCleanup(iframe, config = {}) {
     startSmartPolling();
 }
 
-// 等待 token 保存完成後再清除 URL（專注於確保 iframe 能收到登入信息）
+// 等待 token 保存完成後再清除 URL（支援無痕模式）
 function waitForTokenSaveAndClearUrl(config = {}) {
     console.log('🔍 URL 清除處理開始');
     
@@ -696,8 +769,8 @@ function waitForTokenSaveAndClearUrl(config = {}) {
     const checkTokenSaved = () => {
         attempts++;
         
-        // 檢查 token 是否已保存到存儲
-        const savedToken = storageHandler.safeGetItem('inf_google_access_token');
+        // 檢查 token 是否已保存到存儲（支援無痕模式降級）
+        const savedToken = incognitoHandler.safeGetItem('inf_google_access_token');
         
         if (savedToken) {
             // Token 已保存，清除 URL
@@ -716,7 +789,7 @@ function waitForTokenSaveAndClearUrl(config = {}) {
     checkTokenSaved();
 }
 
-// 清除 URL 參數的函數（專注於確保 iframe 能收到登入信息）
+// 清除 URL 參數的函數（支援無痕模式）
 function clearUrlParameters() {
     try {
         const url = new URL(window.location);
@@ -735,8 +808,8 @@ function clearUrlParameters() {
     } catch (e) {
         console.warn('⚠️ 清除 URL 參數失敗，使用降級方案:', e);
         // 降級方案：只清除基本路徑
-        const cleanUrl = window.location.origin + window.location.pathname;
-        window.history.replaceState({}, document.title, cleanUrl);
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.history.replaceState({}, document.title, cleanUrl);
     }
 }
 
