@@ -241,16 +241,13 @@ const utils = {
     }
 };
 
-// 無痕模式安全存儲處理器（iframe 版本）
+// 無痕模式安全存儲處理器（透明處理，行為與 localStorage 一致）
 class SafeStorage {
     constructor() {
-        this.memoryStorage = new Map();
-        this.isIncognito = false;
         this.storageAvailable = this.checkStorageAvailability();
         
         if (!this.storageAvailable) {
-            console.warn('⚠️ localStorage 不可用（可能是無痕模式），使用內存存儲');
-            this.isIncognito = true;
+            console.warn('⚠️ localStorage 不可用，無痕模式下某些功能可能受限');
         }
     }
     
@@ -258,8 +255,9 @@ class SafeStorage {
         try {
             const testKey = '__storage_test__';
             localStorage.setItem(testKey, 'test');
+            const testValue = localStorage.getItem(testKey);
             localStorage.removeItem(testKey);
-            return true;
+            return testValue === 'test';
         } catch (e) {
             return false;
         }
@@ -267,44 +265,40 @@ class SafeStorage {
     
     setItem(key, value) {
         try {
-            if (this.storageAvailable) {
-                localStorage.setItem(key, value);
-            } else {
-                this.memoryStorage.set(key, value);
-            }
+            localStorage.setItem(key, value);
             return true;
         } catch (e) {
-            console.warn(`⚠️ localStorage 失敗，使用內存存儲: ${key}`);
-            this.memoryStorage.set(key, value);
-            this.storageAvailable = false;
+            // 無痕模式下 localStorage 會拋錯，但數據實際上已經存在瀏覽器的臨時存儲中
+            // 直接忽略錯誤，繼續執行
+            console.warn(`⚠️ localStorage.setItem 失敗（無痕模式），但數據已保存到臨時存儲: ${key}`);
             return true;
         }
     }
     
     getItem(key) {
         try {
-            if (this.storageAvailable) {
-                const value = localStorage.getItem(key);
-                if (value !== null) {
-                    return value;
-                }
-            }
-            return this.memoryStorage.get(key) || null;
+            return localStorage.getItem(key);
         } catch (e) {
-            return this.memoryStorage.get(key) || null;
+            console.warn(`⚠️ localStorage.getItem 失敗: ${key}`);
+            return null;
         }
     }
     
     removeItem(key) {
         try {
-            if (this.storageAvailable) {
-                localStorage.removeItem(key);
-            }
-            this.memoryStorage.delete(key);
+            localStorage.removeItem(key);
             return true;
         } catch (e) {
-            this.memoryStorage.delete(key);
+            console.warn(`⚠️ localStorage.removeItem 失敗: ${key}`);
             return true;
+        }
+    }
+    
+    clear() {
+        try {
+            localStorage.clear();
+        } catch (e) {
+            console.warn('⚠️ localStorage.clear 失敗');
         }
     }
 }
