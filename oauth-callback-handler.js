@@ -142,7 +142,73 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
         if (triggerBtn) {
             console.log('✅ 找到 #panelTagBtn，直接點擊！');
             // 既然找到了就直接用，不要做那麼多檢查
-            triggerBtn.click();
+            
+            // 檢測是否為手機版，使用不同的點擊方式
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            
+            if (isMobile) {
+                console.log('📱 手機版：使用多種點擊方式');
+                
+                // 方法1：標準點擊
+                triggerBtn.click();
+                
+                // 方法2：jQuery 觸發（如果可用）
+                if (typeof $ !== 'undefined') {
+                    setTimeout(() => {
+                        console.log('📱 手機版：使用 jQuery 觸發');
+                        $(triggerBtn).trigger('click');
+                        $(triggerBtn).trigger('touchstart');
+                        $(triggerBtn).trigger('touchend');
+                    }, 50);
+                }
+                
+                // 方法3：觸控事件
+                setTimeout(() => {
+                    console.log('📱 手機版：使用觸控事件');
+                    try {
+                        const touchStart = new TouchEvent('touchstart', {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window
+                        });
+                        triggerBtn.dispatchEvent(touchStart);
+                        
+                        setTimeout(() => {
+                            const touchEnd = new TouchEvent('touchend', {
+                                bubbles: true,
+                                cancelable: true,
+                                view: window
+                            });
+                            triggerBtn.dispatchEvent(touchEnd);
+                        }, 50);
+                    } catch (e) {
+                        console.log('📱 觸控事件失敗，使用滑鼠事件');
+                        const mouseEvent = new MouseEvent('click', {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window
+                        });
+                        triggerBtn.dispatchEvent(mouseEvent);
+                    }
+                }, 100);
+                
+                // 方法4：強制觸發
+                setTimeout(() => {
+                    console.log('📱 手機版：強制觸發');
+                    // 嘗試觸發所有可能的事件
+                    ['click', 'touchstart', 'touchend', 'mousedown', 'mouseup'].forEach(eventType => {
+                        const event = new Event(eventType, {
+                            bubbles: true,
+                            cancelable: true
+                        });
+                        triggerBtn.dispatchEvent(event);
+                    });
+                }, 200);
+                
+            } else {
+                console.log('💻 電腦版：使用標準點擊');
+                triggerBtn.click();
+            }
             
             // 設置雙重保險：transitionend 事件 + 定時器
             let transitionFired = false;
