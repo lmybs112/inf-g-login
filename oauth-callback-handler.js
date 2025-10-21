@@ -13,143 +13,125 @@ class IncognitoModeHandler {
         this.init();
     }
     
-    init() {
-        this.detectIncognitoMode();
+    async init() {
+        await this.detectIncognitoMode();
         this.checkStorageAvailability();
-        console.log(`🔍 無痕模式檢測: ${this.isIncognito ? '是' : '否'}`);
-        console.log(`🔍 存儲可用性: ${this.storageAvailable ? '是' : '否'}`);
+        console.log(`🔍 無痕模式檢測結果: ${this.isIncognito ? '是 ✅' : '否 ❌'}`);
+        console.log(`🔍 存儲可用性: ${this.storageAvailable ? '可用 ✅' : '不可用 ❌'}`);
     }
     
-    // 檢測無痕模式（改進版 - 更準確的檢測方法）
-    detectIncognitoMode() {
-        let incognitoScore = 0;
-        const maxScore = 5;
+    // 檢測無痕模式（真正有效的檢測方法）
+    async detectIncognitoMode() {
+        console.log('🔍 開始無痕模式檢測...');
         
-        // 方法1: 檢查 localStorage 配額
-        try {
-            const testKey = '__incognito_test__';
-            localStorage.setItem(testKey, 'test');
-            localStorage.removeItem(testKey);
-        } catch (e) {
-            incognitoScore++;
-            console.log('🔍 localStorage 檢測失敗:', e.message);
-        }
-        
-        // 方法2: 檢查 sessionStorage 配額
-        try {
-            const testKey = '__incognito_test__';
-            sessionStorage.setItem(testKey, 'test');
-            sessionStorage.removeItem(testKey);
-        } catch (e) {
-            incognitoScore++;
-            console.log('🔍 sessionStorage 檢測失敗:', e.message);
-        }
-        
-        // 方法3: 檢查 IndexedDB 是否可用
-        try {
-            const request = indexedDB.open('__incognito_test__');
-            request.onerror = () => {
-                incognitoScore++;
-                console.log('🔍 IndexedDB 檢測失敗');
-            };
-            request.onsuccess = () => {
-                request.result.close();
-                indexedDB.deleteDatabase('__incognito_test__');
-            };
-        } catch (e) {
-            incognitoScore++;
-            console.log('🔍 IndexedDB 檢測失敗:', e.message);
-        }
-        
-        // 方法4: 檢查瀏覽器特定的無痕模式指標
-        try {
-            // Chrome 無痕模式檢測
-            if (navigator.userAgent.includes('Chrome')) {
-                // 檢查 Chrome 的無痕模式特定 API
-                if (window.chrome && window.chrome.runtime && window.chrome.runtime.onConnect) {
-                    // 在無痕模式下，某些 Chrome API 可能不可用
-                    const hasChromeAPI = typeof window.chrome.runtime.onConnect === 'function';
-                    if (!hasChromeAPI) {
-                        incognitoScore++;
-                        console.log('🔍 Chrome API 檢測失敗');
-                    }
-                }
-            }
-            
-            // Safari 無痕模式檢測
-            if (navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome')) {
-                // Safari 無痕模式會限制某些功能
-                if (typeof window.safari === 'undefined') {
-                    incognitoScore++;
-                    console.log('🔍 Safari API 檢測失敗');
-                }
-            }
-        } catch (e) {
-            incognitoScore++;
-            console.log('🔍 瀏覽器特定檢測失敗:', e.message);
-        }
-        
-        // 方法5: 檢查存儲配額（無痕模式通常有更嚴格的配額限制）
-        try {
-            if (navigator.storage && navigator.storage.estimate) {
-                navigator.storage.estimate().then(estimate => {
-                    // 無痕模式的配額通常很小
-                    if (estimate.quota < 1000000) { // 小於 1MB
-                        incognitoScore++;
-                        console.log('🔍 存儲配額檢測失敗，配額:', estimate.quota);
-                    }
-                }).catch(e => {
-                    incognitoScore++;
-                    console.log('🔍 存儲配額檢測失敗:', e.message);
+        // ✅ 方法 1: 使用 FileSystem API（最準確的方法）
+        // 無痕模式下 requestFileSystem 或 webkitRequestFileSystem 會失敗
+        if (window.webkitRequestFileSystem) {
+            try {
+                await new Promise((resolve, reject) => {
+                    window.webkitRequestFileSystem(
+                        window.TEMPORARY,
+                        1,
+                        resolve,
+                        reject
+                    );
                 });
+                console.log('✅ FileSystem API 可用（非無痕模式）');
+                this.isIncognito = false;
+                return;
+            } catch (e) {
+                console.log('🔍 FileSystem API 失敗（可能是無痕模式）');
+                this.isIncognito = true;
+                return;
             }
-        } catch (e) {
-            incognitoScore++;
-            console.log('🔍 存儲配額檢測失敗:', e.message);
         }
         
-        // 方法6: 檢查瀏覽器窗口標題（最直接的方法）
+        // ✅ 方法 2: 使用 storage.estimate() 檢查配額
+        // 無痕模式的配額通常非常小或異常
+        if (navigator.storage && navigator.storage.estimate) {
+            try {
+                const estimate = await navigator.storage.estimate();
+                const quota = estimate.quota || 0;
+                console.log(`🔍 存儲配額: ${quota} bytes (${(quota / 1024 / 1024).toFixed(2)} MB)`);
+                
+                // 無痕模式的配額通常小於 120MB
+                if (quota > 0 && quota < 120000000) {
+                    console.log('🔍 配額異常小，判定為無痕模式');
+                    this.isIncognito = true;
+                    return;
+                }
+            } catch (e) {
+                console.log('🔍 storage.estimate() 失敗:', e.message);
+            }
+        }
+        
+        // ✅ 方法 3: 使用 IndexedDB 持久性檢查
+        // 無痕模式下 IndexedDB 在關閉瀏覽器後會被清除
         try {
-            const title = document.title;
-            const incognitoKeywords = [
-                '無痕視窗', 'Incognito', 'Private', '隱私', 'Private Browsing',
-                'InPrivate', '無痕模式', '隱私模式', 'Private Window'
-            ];
-            
-            const hasIncognitoTitle = incognitoKeywords.some(keyword => 
-                title.includes(keyword) || document.title.includes(keyword)
-            );
-            
-            if (hasIncognitoTitle) {
-                incognitoScore += 3; // 窗口標題是最可靠的指標，給更高權重
-                console.log('🔍 窗口標題檢測到無痕模式關鍵字:', title);
+            if (navigator.storage && navigator.storage.persisted) {
+                const isPersisted = await navigator.storage.persisted();
+                console.log(`🔍 存儲持久性: ${isPersisted ? '是' : '否'}`);
+                
+                if (!isPersisted) {
+                    console.log('🔍 存儲非持久性，可能是無痕模式');
+                    this.isIncognito = true;
+                    return;
+                }
             }
         } catch (e) {
-            console.log('🔍 窗口標題檢測失敗:', e.message);
+            console.log('🔍 storage.persisted() 失敗:', e.message);
         }
         
-        // 方法7: 檢查 URL 中的無痕模式指標
-        try {
-            const url = window.location.href;
-            const incognitoUrlKeywords = ['incognito', 'private', '無痕'];
-            
-            const hasIncognitoUrl = incognitoUrlKeywords.some(keyword => 
-                url.toLowerCase().includes(keyword)
-            );
-            
-            if (hasIncognitoUrl) {
-                incognitoScore++;
-                console.log('🔍 URL 檢測到無痕模式關鍵字');
+        // ✅ 方法 4: Safari 專用檢測
+        // Safari 無痕模式下 localStorage 會拋出 QuotaExceededError
+        if (navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome')) {
+            try {
+                localStorage.setItem('__safari_incognito_test__', '1');
+                localStorage.removeItem('__safari_incognito_test__');
+                console.log('✅ Safari localStorage 可用（非無痕模式）');
+                this.isIncognito = false;
+            } catch (e) {
+                if (e.name === 'QuotaExceededError' && localStorage.length === 0) {
+                    console.log('🔍 Safari QuotaExceededError 檢測到無痕模式');
+                    this.isIncognito = true;
+                    return;
+                }
             }
-        } catch (e) {
-            console.log('🔍 URL 檢測失敗:', e.message);
         }
         
-        // 根據分數判斷是否為無痕模式
-        this.isIncognito = incognitoScore >= 2; // 2 個或以上指標失敗就認為是無痕模式
+        // ✅ 方法 5: Chrome 專用檢測
+        // 檢查 window.chrome 和 storage API
+        if (navigator.userAgent.includes('Chrome')) {
+            try {
+                // Chrome 無痕模式下 window.chrome.storage 可能不可用
+                if (!window.chrome || !window.chrome.runtime) {
+                    console.log('🔍 Chrome API 不完整，可能是無痕模式');
+                    this.isIncognito = true;
+                    return;
+                }
+            } catch (e) {
+                console.log('🔍 Chrome API 檢測失敗:', e.message);
+            }
+        }
         
-        console.log(`🔍 無痕模式檢測分數: ${incognitoScore}/${maxScore}`);
-        console.log(`🔍 最終判斷: ${this.isIncognito ? '是' : '否'}`);
+        // ✅ 方法 6: 檢查 openDatabase (WebSQL)
+        // 某些瀏覽器的無痕模式會禁用 WebSQL
+        if (window.openDatabase) {
+            try {
+                const db = window.openDatabase('test', '1.0', 'test', 1024);
+                if (!db) {
+                    console.log('🔍 WebSQL 不可用，可能是無痕模式');
+                    this.isIncognito = true;
+                    return;
+                }
+            } catch (e) {
+                console.log('🔍 WebSQL 檢測失敗:', e.message);
+            }
+        }
+        
+        // 默認判定為非無痕模式
+        console.log('✅ 所有檢測通過，判定為非無痕模式');
+        this.isIncognito = false;
     }
     
     // 檢查存儲可用性
@@ -906,8 +888,8 @@ function clearUrlParameters() {
     } catch (e) {
         console.warn('⚠️ 清除 URL 參數失敗，使用降級方案:', e);
         // 降級方案：只清除基本路徑
-        const cleanUrl = window.location.origin + window.location.pathname;
-        window.history.replaceState({}, document.title, cleanUrl);
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.history.replaceState({}, document.title, cleanUrl);
     }
 }
 
