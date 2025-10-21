@@ -241,37 +241,108 @@ const utils = {
     }
 };
 
-// Token 管理類
+// 無痕模式安全存儲處理器（iframe 版本）
+class SafeStorage {
+    constructor() {
+        this.memoryStorage = new Map();
+        this.isIncognito = false;
+        this.storageAvailable = this.checkStorageAvailability();
+        
+        if (!this.storageAvailable) {
+            console.warn('⚠️ localStorage 不可用（可能是無痕模式），使用內存存儲');
+            this.isIncognito = true;
+        }
+    }
+    
+    checkStorageAvailability() {
+        try {
+            const testKey = '__storage_test__';
+            localStorage.setItem(testKey, 'test');
+            localStorage.removeItem(testKey);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+    
+    setItem(key, value) {
+        try {
+            if (this.storageAvailable) {
+                localStorage.setItem(key, value);
+            } else {
+                this.memoryStorage.set(key, value);
+            }
+            return true;
+        } catch (e) {
+            console.warn(`⚠️ localStorage 失敗，使用內存存儲: ${key}`);
+            this.memoryStorage.set(key, value);
+            this.storageAvailable = false;
+            return true;
+        }
+    }
+    
+    getItem(key) {
+        try {
+            if (this.storageAvailable) {
+                const value = localStorage.getItem(key);
+                if (value !== null) {
+                    return value;
+                }
+            }
+            return this.memoryStorage.get(key) || null;
+        } catch (e) {
+            return this.memoryStorage.get(key) || null;
+        }
+    }
+    
+    removeItem(key) {
+        try {
+            if (this.storageAvailable) {
+                localStorage.removeItem(key);
+            }
+            this.memoryStorage.delete(key);
+            return true;
+        } catch (e) {
+            this.memoryStorage.delete(key);
+            return true;
+        }
+    }
+}
+
+// 創建全局安全存儲實例
+const safeStorage = new SafeStorage();
+
+// Token 管理類（支援無痕模式）
 class TokenManager {
     static getAccessToken() {
-        return localStorage.getItem('inf_google_access_token');
+        return safeStorage.getItem('inf_google_access_token');
     }
     
     static setAccessToken(token) {
-        localStorage.setItem('inf_google_access_token', token);
+        safeStorage.setItem('inf_google_access_token', token);
     }
     
     static getUserInfo() {
-        const userInfo = localStorage.getItem('inf_google_user_info');
+        const userInfo = safeStorage.getItem('inf_google_user_info');
         return userInfo ? JSON.parse(userInfo) : null;
     }
     
     static setUserInfo(userInfo) {
-        localStorage.setItem('inf_google_user_info', JSON.stringify(userInfo));
+        safeStorage.setItem('inf_google_user_info', JSON.stringify(userInfo));
     }
     
     static getInfId() {
-        return localStorage.getItem('inf_google_inf_id');
+        return safeStorage.getItem('inf_google_inf_id');
     }
     
     static setInfId(infId) {
-        localStorage.setItem('inf_google_inf_id', infId);
+        safeStorage.setItem('inf_google_inf_id', infId);
     }
     
     static clearAll() {
-        localStorage.removeItem('inf_google_access_token');
-        localStorage.removeItem('inf_google_user_info');
-        localStorage.removeItem('inf_google_inf_id');
+        safeStorage.removeItem('inf_google_access_token');
+        safeStorage.removeItem('inf_google_user_info');
+        safeStorage.removeItem('inf_google_inf_id');
     }
     
     // 刷新 access_token
