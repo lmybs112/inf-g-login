@@ -125,7 +125,45 @@ class SafeStorage {
             }
         }
         
-        // ✅ 方法 5: 手機 Safari 特殊處理 - 檢查 sessionStorage 中是否有保存的 token
+        // ✅ 方法 5: 手機 Safari 特殊處理 - 檢查 Shopline 內嵌腳本數據
+        if (!accessToken && isMobileSafari) {
+            console.log('📱 手機 Safari：檢查 Shopline 內嵌腳本數據');
+            
+            // 檢查 window.selfLink
+            if (window.selfLink && window.selfLink.includes('access_token=')) {
+                console.log('📍 在 window.selfLink 中找到 access_token:', window.selfLink);
+                const tokenMatch = window.selfLink.match(/[?&]access_token=([^&#]+)/);
+                if (tokenMatch) {
+                    accessToken = decodeURIComponent(tokenMatch[1]);
+                    console.log('✅ 從 selfLink 提取到 access_token:', accessToken.substring(0, 20) + '...');
+                }
+            }
+            
+            // 檢查 window.selfSearch
+            if (!accessToken && window.selfSearch && window.selfSearch.includes('access_token=')) {
+                console.log('📍 在 window.selfSearch 中找到 access_token:', window.selfSearch);
+                const tokenMatch = window.selfSearch.match(/[?&]access_token=([^&#]+)/);
+                if (tokenMatch) {
+                    accessToken = decodeURIComponent(tokenMatch[1]);
+                    console.log('✅ 從 selfSearch 提取到 access_token:', accessToken.substring(0, 20) + '...');
+                }
+            }
+            
+            // 組合檢查
+            if (!accessToken && window.selfLink && window.selfSearch) {
+                const combinedUrl = window.selfLink + (window.selfSearch.startsWith('?') ? '' : '?') + window.selfSearch;
+                console.log('📍 組合 URL:', combinedUrl);
+                if (combinedUrl.includes('access_token=')) {
+                    const tokenMatch = combinedUrl.match(/[?&]access_token=([^&#]+)/);
+                    if (tokenMatch) {
+                        accessToken = decodeURIComponent(tokenMatch[1]);
+                        console.log('✅ 從組合 URL 提取到 access_token:', accessToken.substring(0, 20) + '...');
+                    }
+                }
+            }
+        }
+        
+        // ✅ 方法 6: 手機 Safari 特殊處理 - 檢查 sessionStorage 中是否有保存的 token
         if (!accessToken && isMobileSafari) {
             console.log('📱 手機 Safari：檢查 sessionStorage 中是否有保存的 token');
             const savedToken = sessionStorage.getItem('temp_access_token');
@@ -936,6 +974,64 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
                           /Safari/.test(navigator.userAgent) && 
                           !/Chrome/.test(navigator.userAgent);
     
+    // ✅ 從 Shopline 內嵌腳本獲取真實 URL
+    function getRealUrlFromShopline() {
+        console.log('🔍 嘗試從 Shopline 內嵌腳本獲取真實 URL');
+        
+        // 檢查 window.selfLink
+        if (window.selfLink) {
+            console.log('📍 window.selfLink:', window.selfLink);
+            if (window.selfLink.includes('access_token=')) {
+                console.log('✅ 在 selfLink 中找到 access_token');
+                return window.selfLink;
+            }
+        }
+        
+        // 檢查 window.selfSearch
+        if (window.selfSearch) {
+            console.log('📍 window.selfSearch:', window.selfSearch);
+            if (window.selfSearch.includes('access_token=')) {
+                console.log('✅ 在 selfSearch 中找到 access_token');
+                return window.selfSearch;
+            }
+        }
+        
+        // 組合檢查
+        if (window.selfLink && window.selfSearch) {
+            const combinedUrl = window.selfLink + (window.selfSearch.startsWith('?') ? '' : '?') + window.selfSearch;
+            console.log('📍 組合 URL:', combinedUrl);
+            if (combinedUrl.includes('access_token=')) {
+                console.log('✅ 在組合 URL 中找到 access_token');
+                return combinedUrl;
+            }
+        }
+        
+        return null;
+    }
+    
+    // ✅ 從真實 URL 提取 access_token
+    function extractTokenFromRealUrl() {
+        const realUrl = getRealUrlFromShopline();
+        
+        if (realUrl) {
+            console.log('🔍 從真實 URL 提取 access_token:', realUrl);
+            
+            const tokenMatch = realUrl.match(/[?&]access_token=([^&#]+)/);
+            if (tokenMatch) {
+                const accessToken = decodeURIComponent(tokenMatch[1]);
+                console.log('✅ 成功提取 access_token:', accessToken.substring(0, 20) + '...');
+                
+                // 保存到 sessionStorage
+                sessionStorage.setItem('temp_access_token', accessToken);
+                console.log('✅ 已保存 access_token 到 sessionStorage');
+                
+                return accessToken;
+            }
+        }
+        
+        return null;
+    }
+    
     // ✅ 檢查 URL 的函數（支援多種方式檢測）
     function checkUrlForAccessToken() {
         // 方法 1: 從 window.location 檢查
@@ -953,6 +1049,14 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
         if (!hasAccessToken && sessionStorage.getItem('temp_access_token')) {
             console.log('📱 在 sessionStorage 中檢測到 access_token');
             hasAccessToken = true;
+        }
+        
+        // 方法 4: 從 Shopline 內嵌腳本數據檢查（手機 Safari 專用）
+        if (!hasAccessToken && isMobileSafari) {
+            const token = extractTokenFromRealUrl();
+            if (token) {
+                hasAccessToken = true;
+            }
         }
         
         return hasAccessToken;
@@ -975,6 +1079,11 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
             if (tokenMatch) {
                 accessToken = decodeURIComponent(tokenMatch[1]);
             }
+        }
+        
+        // 從 Shopline 內嵌腳本數據提取（手機 Safari 專用）
+        if (!accessToken && isMobileSafari) {
+            accessToken = extractTokenFromRealUrl();
         }
         
         if (accessToken) {
