@@ -140,20 +140,9 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
         const triggerBtn = document.getElementById('panelTagBtn');
         
         if (triggerBtn) {
-            console.log('✅ 找到 #panelTagBtn，準備點擊');
-            // 確保按鈕可見且可點擊
-            if (triggerBtn.offsetParent !== null && !triggerBtn.disabled) {
-                triggerBtn.click();
-            } else {
-                console.warn('⚠️ #panelTagBtn 存在但不可見或已禁用，等待一下再試');
-                setTimeout(() => {
-                    if (triggerBtn.offsetParent !== null && !triggerBtn.disabled) {
-                        triggerBtn.click();
-                    } else {
-                        console.error('❌ #panelTagBtn 仍然不可用');
-                    }
-                }, 1000);
-            }
+            console.log('✅ 找到 #panelTagBtn，直接點擊！');
+            // 既然找到了就直接用，不要做那麼多檢查
+            triggerBtn.click();
             
             // 設置雙重保險：transitionend 事件 + 定時器
             let transitionFired = false;
@@ -206,20 +195,9 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
         
         const triggerBtn = document.getElementById('panelTagBtn');
         if (triggerBtn) {
-            console.log('👀 MutationObserver 檢測到 #panelTagBtn 元素存在');
-            console.log('🔍 按鈕狀態檢查:', {
-                exists: !!triggerBtn,
-                visible: triggerBtn.offsetParent !== null,
-                disabled: triggerBtn.disabled,
-                display: getComputedStyle(triggerBtn).display,
-                visibility: getComputedStyle(triggerBtn).visibility
-            });
-            
-            if (triggerBtn.offsetParent !== null) {
-                console.log('✅ #panelTagBtn 可見，準備點擊');
-                observer.disconnect();
-                clickButtonAndProceed();
-            }
+            console.log('👀 MutationObserver 檢測到 #panelTagBtn，直接點擊！');
+            observer.disconnect();
+            clickButtonAndProceed();
         }
     });
     
@@ -239,8 +217,8 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
         }
         
         const triggerBtn = document.getElementById('panelTagBtn');
-        if (triggerBtn && triggerBtn.offsetParent !== null) {
-            console.log('⏰ 定期檢查發現 #panelTagBtn 可見');
+        if (triggerBtn) {
+            console.log('⏰ 定期檢查發現 #panelTagBtn，直接點擊！');
             clearInterval(checkInterval);
             observer.disconnect();
             clickButtonAndProceed();
@@ -258,7 +236,7 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
             // 先檢查 #panelTagBtn 是否存在
             const triggerBtn = document.getElementById('panelTagBtn');
             if (triggerBtn) {
-                console.log('✅ 找到 #panelTagBtn，直接執行');
+                console.log('✅ 找到 #panelTagBtn，直接執行！');
                 clickButtonAndProceed();
             } else {
                 console.warn('❌ #panelTagBtn 不存在，等待更長時間...');
@@ -266,7 +244,7 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
                 setTimeout(() => {
                     const retryBtn = document.getElementById('panelTagBtn');
                     if (retryBtn) {
-                        console.log('✅ 重試後找到 #panelTagBtn');
+                        console.log('✅ 重試後找到 #panelTagBtn，直接執行！');
                         clickButtonAndProceed();
                     } else {
                         console.error('❌ 最終仍未找到 #panelTagBtn，可能頁面載入有問題');
