@@ -124,6 +124,13 @@ function handleOAuthCallbackForPanel(config = {}) {
 // 開啟彈窗並切換到 AI 頁面的函數（優化版 - 監聽 iframe 通知）
 function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
     let buttonClicked = false;
+    let findSizeButtonAutoClicked = false;
+    
+    // 檢測是否為手機瀏覽器
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const animationDelay = isMobile ? 1000 : 500; // 手機版等待更久
+    
+    console.log(`📱 檢測到 ${isMobile ? '手機' : '電腦'} 瀏覽器，動畫延遲: ${animationDelay}ms`);
     
     // 點擊按鈕並處理後續流程
     function clickButtonAndProceed() {
@@ -136,20 +143,30 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
             console.log('✅ 找到 #panelTagBtn，準備點擊');
             triggerBtn.click();
             
+            // 設置雙重保險：transitionend 事件 + 定時器
+            let transitionFired = false;
+            
             // 監聽彈窗開啟動畫完成事件
-            panelOffcanvas.addEventListener('transitionend', function onTransitionEnd() {
+            const onTransitionEnd = function() {
+                if (findSizeButtonAutoClicked) return;
+                transitionFired = true;
                 panelOffcanvas.removeEventListener('transitionend', onTransitionEnd);
                 
+                console.log('✅ transitionend 事件觸發');
                 // 自動點擊「找尋合適尺寸」按鈕
                 autoClickFindSizeButton(iframe, config);
-            }, { once: true });
+            };
             
-            // 如果沒有動畫，延遲執行（確保彈窗已開啟）
+            panelOffcanvas.addEventListener('transitionend', onTransitionEnd, { once: true });
+            
+            // ✅ 定時器保底（手機版尤其重要）
             setTimeout(() => {
-                if (!panelOffcanvas.style.transition) {
+                if (!findSizeButtonAutoClicked && !transitionFired) {
+                    console.log(`⏱️ ${animationDelay}ms 定時器觸發（transitionend 未觸發）`);
+                    panelOffcanvas.removeEventListener('transitionend', onTransitionEnd);
                     autoClickFindSizeButton(iframe, config);
                 }
-            }, 500);
+            }, animationDelay);
         } else {
             console.warn('⚠️ 找不到 #panelTagBtn，直接嘗試點擊「找尋合適尺寸」');
             autoClickFindSizeButton(iframe, config);
@@ -181,246 +198,114 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
     }, 10000);
 }
 
-// 自動點擊「找尋合適尺寸」按鈕的函數（嚴謹版）
+// 自動點擊「找尋合適尺寸」按鈕的函數（優化版）
 function autoClickFindSizeButton(iframe, config = {}) {
-    // 狀態管理
-    const state = {
-        buttonClicked: false,
-        checkAttempts: 0,
-        pollInterval: null,
-        observer: null,
-        timeoutId: null,
-        cleanedUp: false
-    };
+    let buttonClicked = false;
+    let checkAttempts = 0;
     
     // 檢測是否為手機瀏覽器
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const maxCheckAttempts = isMobile ? 75 : 50; // 手機版更多嘗試次數
-    const pollIntervalTime = isMobile ? 100 : 200;
-    const timeoutDuration = isMobile ? 15000 : 10000;
-    const clickDelay = isMobile ? 800 : 500;
+    const maxCheckAttempts = isMobile ? 75 : 50; // 手機版給更多時間
+    const pollInterval = isMobile ? 150 : 200; // 手機版檢查更頻繁
+    const buttonDelay = isMobile ? 800 : 500; // 手機版延遲更久
     
-    console.log(`📱 檢測到 ${isMobile ? '手機' : '電腦'} 瀏覽器`);
-    console.log(`⚙️ 配置: 輪詢間隔=${pollIntervalTime}ms, 超時=${timeoutDuration}ms, 最大嘗試=${maxCheckAttempts}次`);
-    
-    // 清理所有監聽器和計時器
-    function cleanup(reason = '完成') {
-        if (state.cleanedUp) return;
-        state.cleanedUp = true;
-        
-        if (state.pollInterval) {
-            clearInterval(state.pollInterval);
-            state.pollInterval = null;
-        }
-        
-        if (state.observer) {
-            state.observer.disconnect();
-            state.observer = null;
-        }
-        
-        if (state.timeoutId) {
-            clearTimeout(state.timeoutId);
-            state.timeoutId = null;
-        }
-        
-        console.log(`🧹 已清理資源 (原因: ${reason})`);
-    }
-    
-    // 驗證按鈕是否真正可點擊
-    function validateButton(button) {
-        if (!button) return { valid: false, reason: '按鈕不存在' };
-        
-        const checks = {
-            exists: !!button,
-            visible: button.offsetParent !== null,
-            enabled: !button.disabled,
-            hasText: button.textContent && button.textContent.trim().length > 0,
-            inDocument: document.body.contains(button),
-            notHidden: window.getComputedStyle(button).display !== 'none',
-            notTransparent: window.getComputedStyle(button).opacity !== '0',
-            hasSize: button.offsetWidth > 0 && button.offsetHeight > 0
-        };
-        
-        const allValid = Object.values(checks).every(v => v === true);
-        
-        return {
-            valid: allValid,
-            checks: checks,
-            text: button.textContent?.trim(),
-            reason: allValid ? '驗證通過' : '驗證失敗'
-        };
-    }
-    
-    // 安全的點擊方法
-    function safeClickButton(button) {
-        try {
-            console.log('🖱️ 開始執行點擊序列...');
-            
-            if (isMobile) {
-                // 手機版：觸控事件序列
-                try {
-                    // 1. touchstart
-                    const touchStartEvent = new TouchEvent('touchstart', {
-                        bubbles: true,
-                        cancelable: true,
-                        view: window,
-                        touches: [new Touch({
-                            identifier: Date.now(),
-                            target: button,
-                            clientX: button.getBoundingClientRect().left + button.offsetWidth / 2,
-                            clientY: button.getBoundingClientRect().top + button.offsetHeight / 2,
-                            screenX: button.getBoundingClientRect().left + button.offsetWidth / 2,
-                            screenY: button.getBoundingClientRect().top + button.offsetHeight / 2,
-                            pageX: button.getBoundingClientRect().left + button.offsetWidth / 2,
-                            pageY: button.getBoundingClientRect().top + button.offsetHeight / 2
-                        })]
-                    });
-                    button.dispatchEvent(touchStartEvent);
-                    console.log('  ✓ touchstart 已觸發');
-                } catch (touchError) {
-                    console.warn('  ⚠️ touchstart 失敗:', touchError.message);
-                }
-                
-                // 2. click (延遲 50ms)
-                setTimeout(() => {
-                    try {
-                        button.click();
-                        console.log('  ✓ click 已觸發');
-                        
-                        // 3. touchend (延遲 100ms)
-                        setTimeout(() => {
-                            try {
-                                const touchEndEvent = new TouchEvent('touchend', {
-                                    bubbles: true,
-                                    cancelable: true,
-                                    view: window
-                                });
-                                button.dispatchEvent(touchEndEvent);
-                                console.log('  ✓ touchend 已觸發');
-                            } catch (touchEndError) {
-                                console.warn('  ⚠️ touchend 失敗:', touchEndError.message);
-                            }
-                        }, 100);
-                    } catch (clickError) {
-                        console.error('  ❌ click 失敗:', clickError.message);
-                    }
-                }, 50);
-            } else {
-                // 電腦版：直接點擊
-                button.click();
-                console.log('  ✓ click 已觸發（電腦版）');
-            }
-            
-            return true;
-        } catch (error) {
-            console.error('❌ 點擊執行失敗:', error);
-            return false;
-        }
-    }
+    console.log(`📱 autoClickFindSizeButton: ${isMobile ? '手機' : '電腦'}模式`);
     
     // 嘗試點擊按鈕
     function tryClickButton() {
-        if (state.buttonClicked) {
+        if (buttonClicked) {
             return true;
         }
         
-        state.checkAttempts++;
+        checkAttempts++;
         
-        // 尋找按鈕
+        // 尋找「找尋合適尺寸」按鈕（.intro-btn--primary）
         const findSizeButton = document.querySelector('.intro-btn--primary');
         
-        if (!findSizeButton) {
-            // 只在特定次數輸出，避免日誌過多
-            if (state.checkAttempts === 1 || state.checkAttempts % 10 === 0) {
-                console.log(`🔍 第 ${state.checkAttempts} 次檢查：未找到按鈕`);
+        if (findSizeButton) {
+            // 手機版：更寬鬆的可見性檢查
+            const isVisible = isMobile 
+                ? (findSizeButton.offsetWidth > 0 || findSizeButton.offsetHeight > 0)
+                : (findSizeButton.offsetParent !== null);
+            
+            if (isVisible) {
+                console.log('✅ 找到「找尋合適尺寸」按鈕，自動點擊');
+                buttonClicked = true;
+                
+                // 點擊按鈕（手機版可能需要多種方式）
+                if (isMobile) {
+                    // 手機版：嘗試觸控事件
+                    try {
+                        findSizeButton.dispatchEvent(new TouchEvent('touchstart', { bubbles: true }));
+                        findSizeButton.click();
+                        findSizeButton.dispatchEvent(new TouchEvent('touchend', { bubbles: true }));
+                        console.log('  ✓ 手機版觸控事件序列完成');
+                    } catch (e) {
+                        // 降級：只用 click
+                        findSizeButton.click();
+                        console.log('  ✓ 降級使用 click 事件');
+                    }
+                } else {
+                    // 電腦版：直接 click
+                    findSizeButton.click();
+                }
+                
+                // 等待按鈕點擊後的頁面切換，然後處理 iframe
+                setTimeout(() => {
+                    handleIframeAndUrlCleanup(iframe, config);
+                }, buttonDelay);
+                
+                return true;
             }
-            return false;
         }
         
-        // 驗證按鈕
-        const validation = validateButton(findSizeButton);
-        
-        // 輸出檢查結果（前 5 次或每 10 次）
-        if (state.checkAttempts <= 5 || state.checkAttempts % 10 === 0) {
-            console.log(`🔍 第 ${state.checkAttempts} 次檢查:`, validation);
-        }
-        
-        if (!validation.valid) {
-            return false;
-        }
-        
-        // 驗證通過，執行點擊
-        console.log(`✅ 按鈕驗證通過 (第 ${state.checkAttempts} 次)，準備點擊`);
-        state.buttonClicked = true;
-        
-        // 清理監聽器
-        cleanup('找到按鈕並準備點擊');
-        
-        // 執行點擊
-        const clickSuccess = safeClickButton(findSizeButton);
-        
-        if (!clickSuccess) {
-            console.error('❌ 點擊失敗，嘗試降級處理');
-        }
-        
-        // 等待頁面切換後處理 iframe
-        setTimeout(() => {
-            console.log('🔄 按鈕點擊完成，開始處理 iframe');
-            handleIframeAndUrlCleanup(iframe, config);
-        }, clickDelay);
-        
-        return true;
+        return false;
     }
     
     // 立即嘗試
-    console.log('🚀 開始查找「找尋合適尺寸」按鈕...');
     if (tryClickButton()) {
         return;
     }
     
-    console.log('🔄 按鈕尚未就緒，開始輪詢檢查...');
-    
-    // 輪詢檢查
-    state.pollInterval = setInterval(() => {
-        if (state.buttonClicked || state.checkAttempts >= maxCheckAttempts) {
-            cleanup('達到條件停止輪詢');
+    // 使用輪詢方式持續檢查（更可靠）
+    const pollIntervalId = setInterval(() => {
+        if (buttonClicked || checkAttempts >= maxCheckAttempts) {
+            clearInterval(pollIntervalId);
             
-            if (!state.buttonClicked) {
-                console.warn(`⚠️ 已嘗試 ${state.checkAttempts} 次仍未找到按鈕，降級處理`);
+            if (!buttonClicked) {
+                console.warn('⚠️ 未找到「找尋合適尺寸」按鈕，直接處理 iframe');
                 handleIframeAndUrlCleanup(iframe, config);
             }
             return;
         }
         
         tryClickButton();
-    }, pollIntervalTime);
+    }, pollInterval); // 使用動態間隔（手機 150ms / 電腦 200ms）
     
-    // MutationObserver 輔助
-    try {
-        state.observer = new MutationObserver((mutations) => {
-            if (!state.buttonClicked && tryClickButton()) {
-                cleanup('Observer 檢測到變化並找到按鈕');
-            }
-        });
+    // 同時使用 MutationObserver 作為補充（DOM 變化時立即檢查）
+    const buttonObserver = new MutationObserver((mutations) => {
+        if (!buttonClicked && tryClickButton()) {
+            buttonObserver.disconnect();
+            clearInterval(pollIntervalId);
+        }
+    });
+    
+    buttonObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+    
+    // 動態超時（手機 15 秒 / 電腦 10 秒）
+    const timeout = isMobile ? 15000 : 10000;
+    setTimeout(() => {
+        buttonObserver.disconnect();
+        clearInterval(pollIntervalId);
         
-        state.observer.observe(document.body, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['style', 'class']
-        });
-    } catch (observerError) {
-        console.warn('⚠️ MutationObserver 初始化失敗:', observerError.message);
-    }
-    
-    // 超時保護
-    state.timeoutId = setTimeout(() => {
-        if (!state.buttonClicked) {
-            console.warn(`⚠️ 超時 ${timeoutDuration}ms，強制降級處理`);
-            cleanup('超時');
+        if (!buttonClicked) {
+            console.warn(`⚠️ ${timeout}ms 超時，直接處理 iframe`);
             handleIframeAndUrlCleanup(iframe, config);
         }
-    }, timeoutDuration);
+    }, timeout);
 }
 
 // 處理 iframe 載入和 URL 清除（優化版）
@@ -638,7 +523,7 @@ function onloadIframeSendUrl(iframeId) {
 window.checkOAuthCallback = checkOAuthCallback;
 window.initOAuthCallbackHandler = initOAuthCallbackHandler;
 window.handleOAuthCallbackForPanel = handleOAuthCallbackForPanel;
-window.clickPanelTagBtn = clickPanelTagBtn;
+window.openPanelAndSwitchToAI = openPanelAndSwitchToAI;
 window.autoClickFindSizeButton = autoClickFindSizeButton;
 window.handleIframeAndUrlCleanup = handleIframeAndUrlCleanup;
 window.waitForTokenSaveAndClearUrl = waitForTokenSaveAndClearUrl;
