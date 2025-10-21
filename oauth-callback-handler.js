@@ -65,29 +65,80 @@ class SafeStorage {
         }
     }
     
-    // 從 URL 提取 access_token 並保存（同步版本）
+    // 從 URL 提取 access_token 並保存（手機 Safari 修復版）
     extractAndSaveTokenFromUrl() {
         console.log('🔍 開始從 URL 提取 access_token...');
         console.log('📍 當前 URL:', window.location.href);
         console.log('📍 URL search:', window.location.search);
         console.log('📍 URL hash:', window.location.hash);
         
-        const urlParams = new URLSearchParams(window.location.search);
-        const urlHash = window.location.hash;
+        // 檢測是否為手機 Safari
+        const isMobileSafari = /iPhone|iPad|iPod/.test(navigator.userAgent) && 
+                              /Safari/.test(navigator.userAgent) && 
+                              !/Chrome/.test(navigator.userAgent);
         
-        let accessToken = urlParams.get('access_token');
-        console.log('🔍 從 search params 找到 access_token:', accessToken ? '是' : '否');
+        let accessToken = null;
         
-        // 檢查 hash 參數
-        if (!accessToken && urlHash.includes('access_token=')) {
-            console.log('🔍 檢查 hash 參數中的 access_token');
-            const hashParams = new URLSearchParams(urlHash.substring(1));
-            accessToken = hashParams.get('access_token');
-            console.log('🔍 從 hash params 找到 access_token:', accessToken ? '是' : '否');
+        // ✅ 方法 1: 檢查完整的 href URL（最可靠，特別是手機 Safari）
+        const fullUrl = window.location.href;
+        console.log('🔍 檢查完整 URL 中是否包含 access_token');
+        
+        if (fullUrl.includes('access_token=')) {
+            console.log('✅ 在完整 URL 中找到 access_token 參數');
+            
+            // 使用正則表達式提取 access_token
+            const tokenMatch = fullUrl.match(/[?&]access_token=([^&]+)/);
+            if (tokenMatch) {
+                accessToken = decodeURIComponent(tokenMatch[1]);
+                console.log('✅ 使用正則表達式提取到 access_token:', accessToken.substring(0, 20) + '...');
+            }
+        }
+        
+        // ✅ 方法 2: 如果方法 1 失敗，嘗試從 search params
+        if (!accessToken) {
+            console.log('🔍 嘗試從 URLSearchParams 提取');
+            const urlParams = new URLSearchParams(window.location.search);
+            accessToken = urlParams.get('access_token');
+            console.log('🔍 從 search params 找到 access_token:', accessToken ? '是' : '否');
+        }
+        
+        // ✅ 方法 3: 檢查 hash 參數
+        if (!accessToken) {
+            const urlHash = window.location.hash;
+            if (urlHash.includes('access_token=')) {
+                console.log('🔍 檢查 hash 參數中的 access_token');
+                const hashParams = new URLSearchParams(urlHash.substring(1));
+                accessToken = hashParams.get('access_token');
+                console.log('🔍 從 hash params 找到 access_token:', accessToken ? '是' : '否');
+            }
+        }
+        
+        // ✅ 方法 4: 手機 Safari 特殊處理 - 檢查 document.referrer
+        if (!accessToken && isMobileSafari && document.referrer) {
+            console.log('📱 手機 Safari：檢查 document.referrer:', document.referrer);
+            if (document.referrer.includes('access_token=')) {
+                const tokenMatch = document.referrer.match(/[?&]access_token=([^&]+)/);
+                if (tokenMatch) {
+                    accessToken = decodeURIComponent(tokenMatch[1]);
+                    console.log('✅ 從 document.referrer 提取到 access_token:', accessToken.substring(0, 20) + '...');
+                }
+            }
+        }
+        
+        // ✅ 方法 5: 手機 Safari 特殊處理 - 檢查 sessionStorage 中是否有保存的 token
+        if (!accessToken && isMobileSafari) {
+            console.log('📱 手機 Safari：檢查 sessionStorage 中是否有保存的 token');
+            const savedToken = sessionStorage.getItem('temp_access_token');
+            if (savedToken) {
+                accessToken = savedToken;
+                console.log('✅ 從 sessionStorage 恢復 access_token:', accessToken.substring(0, 20) + '...');
+                // 清除臨時保存的 token
+                sessionStorage.removeItem('temp_access_token');
+            }
         }
         
         if (accessToken) {
-            console.log('✅ 從 URL 提取到 access_token:', accessToken.substring(0, 20) + '...');
+            console.log('✅ 成功提取到 access_token:', accessToken.substring(0, 20) + '...');
             this.setItem('inf_google_access_token', accessToken);
             
             // ✅ 異步獲取用戶信息（不阻塞主流程）
@@ -97,11 +148,13 @@ class SafeStorage {
             
             return accessToken;
         } else {
-            console.warn('⚠️ URL 中沒有找到 access_token');
-            console.log('🔍 所有 URL 參數:', Array.from(urlParams.entries()));
-            if (urlHash) {
-                console.log('🔍 Hash 內容:', urlHash);
-            }
+            console.warn('⚠️ 所有方法都無法找到 access_token');
+            console.log('🔍 完整 URL 分析:');
+            console.log('  - href:', window.location.href);
+            console.log('  - search:', window.location.search);
+            console.log('  - hash:', window.location.hash);
+            console.log('  - referrer:', document.referrer);
+            console.log('  - 是否為手機 Safari:', isMobileSafari);
         }
         
         return null;
@@ -314,23 +367,50 @@ function processOAuthCallback(config) {
     console.log('🔧 processOAuthCallback 開始執行');
     console.log('🔧 配置模式:', config.mode || '未設置（將使用默認模式）');
     
-    // 根據配置決定處理方式
-    if (config.mode === 'size') {
+        // 根據配置決定處理方式
+        if (config.mode === 'size') {
         console.log('📦 使用 Size 模式');
-        // Size 模式：使用 sessionStorage 和 showIframe
-        const savedIframeType = sessionStorage.getItem('current_iframe_type');
-        
-        if (savedIframeType) {
-            // 自動重開對應的 modal
-            if (typeof showIframe === 'function') {
-                showIframe(savedIframeType);
-            }
+            // Size 模式：使用 sessionStorage 和 showIframe
+            const savedIframeType = sessionStorage.getItem('current_iframe_type');
             
-            // 等待 iframe 載入完成後清除 URL 參數
-            const iframe = document.getElementById(config.iframeId || 'inffits_ctryon_window');
+            if (savedIframeType) {
+                // 自動重開對應的 modal
+                if (typeof showIframe === 'function') {
+                    showIframe(savedIframeType);
+                }
+                
+                // 等待 iframe 載入完成後清除 URL 參數
+                const iframe = document.getElementById(config.iframeId || 'inffits_ctryon_window');
+                if (iframe) {
+                    iframe.onload = function() {
+                        // 發送 URL 到 iframe
+                        iframe.contentWindow.postMessage(
+                            { url: window.location.href },
+                            "*"
+                        );
+                        
+                        // 等待 token 保存完成後再清除 URL
+                        waitForTokenSaveAndClearUrl();
+                    };
+                }
+            }
+        } else if (config.mode === 'panel') {
+        console.log('📱 使用 Panel 模式');
+            // Panel 模式：處理彈窗和自動點擊流程
+            handleOAuthCallbackForPanel(config);
+        } else {
+        console.log('🖥️ 使用標準模式（jQuery modal）');
+            // 標準模式：使用 jQuery modal
+            $("#inffits_cblock--overlay").fadeIn();
+            $(".ai-pd-container__trigger").removeClass('ai-pd-container__trigger--search')
+                                          .addClass('ai-pd-container__trigger--close');
+            
+            // 等待 iframe 處理完成後清除 URL 參數
+            const iframe = document.getElementById(config.iframeId || 'inffits_tryon_window');
             if (iframe) {
-                iframe.onload = function() {
-                    // 發送 URL 到 iframe
+                // 使用 setTimeout 確保 iframe 已經處理完 access_token
+                setTimeout(() => {
+                    // 發送 URL 到 iframe（讓 iframe 可以處理 OAuth）
                     iframe.contentWindow.postMessage(
                         { url: window.location.href },
                         "*"
@@ -338,35 +418,8 @@ function processOAuthCallback(config) {
                     
                     // 等待 token 保存完成後再清除 URL
                     waitForTokenSaveAndClearUrl();
-                };
-            }
-        }
-    } else if (config.mode === 'panel') {
-        console.log('📱 使用 Panel 模式');
-        // Panel 模式：處理彈窗和自動點擊流程
-        handleOAuthCallbackForPanel(config);
-    } else {
-        console.log('🖥️ 使用標準模式（jQuery modal）');
-        // 標準模式：使用 jQuery modal
-        $("#inffits_cblock--overlay").fadeIn();
-        $(".ai-pd-container__trigger").removeClass('ai-pd-container__trigger--search')
-                                      .addClass('ai-pd-container__trigger--close');
-        
-        // 等待 iframe 處理完成後清除 URL 參數
-        const iframe = document.getElementById(config.iframeId || 'inffits_tryon_window');
-        if (iframe) {
-            // 使用 setTimeout 確保 iframe 已經處理完 access_token
-            setTimeout(() => {
-                // 發送 URL 到 iframe（讓 iframe 可以處理 OAuth）
-                iframe.contentWindow.postMessage(
-                    { url: window.location.href },
-                    "*"
-                );
-                
-                // 等待 token 保存完成後再清除 URL
-                waitForTokenSaveAndClearUrl();
-                
-            }, config.delay || 1000); // 可配置延遲時間
+                    
+                }, config.delay || 1000); // 可配置延遲時間
         }
     }
 }
@@ -456,7 +509,7 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
                 }
             } else {
                 // 電腦版：直接 click
-                triggerBtn.click();
+            triggerBtn.click();
             }
             
             // 設置雙重保險：transitionend 事件 + 定時器
@@ -509,8 +562,8 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
         onFound: () => {
             if (!buttonClicked) {
                 console.log('🎯 穩定按鈕查找器找到 #panelTagBtn，直接點擊！');
-                clickButtonAndProceed();
-            }
+            clickButtonAndProceed();
+        }
         },
         onTimeout: () => {
             console.warn('⚠️ 按鈕查找超時，直接嘗試點擊「找尋合適尺寸」');
@@ -541,7 +594,7 @@ function autoClickFindSizeButton(iframe, config = {}) {
         console.log('✅ 找到「找尋合適尺寸」按鈕，自動點擊');
         
         // 手機版：使用觸控事件序列確保點擊有效
-        if (isMobile) {
+                if (isMobile) {
             try {
                 // 觸控事件序列
                 button.dispatchEvent(new TouchEvent('touchstart', { 
@@ -556,20 +609,20 @@ function autoClickFindSizeButton(iframe, config = {}) {
                     changedTouches: [new Touch({ identifier: 0, target: button, clientX: 0, clientY: 0 })]
                 }));
                 console.log('📱 手機版觸控事件序列完成');
-            } catch (e) {
-                // 降級：只用 click
+                    } catch (e) {
+                        // 降級：只用 click
                 button.click();
                 console.log('📱 降級使用 click 事件');
-            }
-        } else {
-            // 電腦版：直接 click
+                    }
+                } else {
+                    // 電腦版：直接 click
             button.click();
-        }
-        
-        // 等待按鈕點擊後的頁面切換，然後處理 iframe
-        setTimeout(() => {
-            handleIframeAndUrlCleanup(iframe, config);
-        }, buttonDelay);
+                }
+                
+                // 等待按鈕點擊後的頁面切換，然後處理 iframe
+                setTimeout(() => {
+                    handleIframeAndUrlCleanup(iframe, config);
+                }, buttonDelay);
     }
     
     // 檢查按鈕是否準備就緒
@@ -799,8 +852,8 @@ function clearUrlParameters() {
     } catch (e) {
         console.warn('⚠️ 清除 URL 參數失敗，使用降級方案:', e);
         // 降級方案：只保留基本路徑
-        const cleanUrl = window.location.origin + window.location.pathname;
-        window.history.replaceState({}, document.title, cleanUrl);
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.history.replaceState({}, document.title, cleanUrl);
     }
 }
 
@@ -876,19 +929,77 @@ window.clearUrlParameters = clearUrlParameters;
 window.onloadIframeSendUrl = onloadIframeSendUrl;
 window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
 
-// ✅ 自動檢查：如果 URL 中有 access_token，立即處理（嚴謹的事件驅動方式）
+// ✅ 自動檢查：如果 URL 中有 access_token，立即處理（手機 Safari 時序修復版）
 (function() {
+    // 檢測是否為手機 Safari
+    const isMobileSafari = /iPhone|iPad|iPod/.test(navigator.userAgent) && 
+                          /Safari/.test(navigator.userAgent) && 
+                          !/Chrome/.test(navigator.userAgent);
+    
+    // ✅ 手機 Safari 特殊處理：延遲檢查 URL（等待 URL 穩定）
+    function checkAndSaveToken() {
+        console.log('📱 手機 Safari：檢查並保存 access_token');
+        console.log('📍 當前 URL:', window.location.href);
+        
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlHash = window.location.hash;
+        
+        // 檢查完整 URL（最可靠）
+        const fullUrl = window.location.href;
+        let accessToken = null;
+        
+        if (fullUrl.includes('access_token=')) {
+            console.log('✅ 在完整 URL 中找到 access_token');
+            const tokenMatch = fullUrl.match(/[?&]access_token=([^&#]+)/);
+            if (tokenMatch) {
+                accessToken = decodeURIComponent(tokenMatch[1]);
+                console.log('✅ 提取到 access_token:', accessToken.substring(0, 20) + '...');
+            }
+        }
+        
+        // 備用：從 URLSearchParams
+        if (!accessToken) {
+            accessToken = urlParams.get('access_token');
+        }
+        
+        // 備用：從 hash
+        if (!accessToken && urlHash.includes('access_token=')) {
+            accessToken = new URLSearchParams(urlHash.substring(1)).get('access_token');
+        }
+        
+        if (accessToken) {
+            sessionStorage.setItem('temp_access_token', accessToken);
+            console.log('✅ 已保存 access_token 到 sessionStorage');
+            return true;
+        }
+        
+        return false;
+    }
+    
+    // 手機 Safari：使用多重時間點檢查
+    if (isMobileSafari) {
+        console.log('📱 手機 Safari：使用延遲檢查機制');
+        
+        // 立即檢查一次
+        const found = checkAndSaveToken();
+        
+        // 如果沒找到，延遲 50ms 再檢查
+        if (!found) {
+            setTimeout(() => {
+                console.log('📱 手機 Safari：延遲 50ms 後重新檢查');
+                checkAndSaveToken();
+            }, 50);
+        }
+    }
+    
     const urlParams = new URLSearchParams(window.location.search);
     const urlHash = window.location.hash;
-    const hasAccessToken = urlParams.get('access_token') || urlHash.includes('access_token=');
+    const hasAccessToken = urlParams.get('access_token') || 
+                          urlHash.includes('access_token=') ||
+                          window.location.href.includes('access_token=');
     
     if (hasAccessToken) {
         console.log('🔍 檢測到 URL 中有 access_token，自動啟動 OAuth 處理');
-        
-        // 檢測是否為手機 Safari
-        const isMobileSafari = /iPhone|iPad|iPod/.test(navigator.userAgent) && 
-                              /Safari/.test(navigator.userAgent) && 
-                              !/Chrome/.test(navigator.userAgent);
         
         let executed = false;
         let eventListenersAdded = false;
