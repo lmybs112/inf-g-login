@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>跨域登入測試</title>
+</head>
+<body>
+    <h1>跨域登入測試頁面</h1>
+    <p>本地頁面，iframe 從 Vercel 載入（測試跨域 localStorage）</p>
+    
+    <!-- 直接載入腳本 -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://inf-g-login.vercel.app/demo/index.js"></script>
+    <script src="https://inf-g-login.vercel.app/oauth-callback-handler.js"></script>
+    <script>
+        
+        // 立即執行
+        onloadIframeSendUrl("inffits_ctryon_window");
+        initOAuthCallbackHandler({
+            mode: 'panel',
+            iframeId: 'inffits_ctryon_window',
+            timeout: 10000,
+            buttonDelay: 500,
+            buttonTimeout: 5000,
+            maxAttempts: 50,
+            checkInterval: 100
+        });
+        
+    </script>
+</body>
+</html>
