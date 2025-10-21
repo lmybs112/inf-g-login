@@ -67,19 +67,27 @@ class SafeStorage {
     
     // 從 URL 提取 access_token 並保存（同步版本）
     extractAndSaveTokenFromUrl() {
+        console.log('🔍 開始從 URL 提取 access_token...');
+        console.log('📍 當前 URL:', window.location.href);
+        console.log('📍 URL search:', window.location.search);
+        console.log('📍 URL hash:', window.location.hash);
+        
         const urlParams = new URLSearchParams(window.location.search);
         const urlHash = window.location.hash;
         
         let accessToken = urlParams.get('access_token');
+        console.log('🔍 從 search params 找到 access_token:', accessToken ? '是' : '否');
         
         // 檢查 hash 參數
         if (!accessToken && urlHash.includes('access_token=')) {
+            console.log('🔍 檢查 hash 參數中的 access_token');
             const hashParams = new URLSearchParams(urlHash.substring(1));
             accessToken = hashParams.get('access_token');
+            console.log('🔍 從 hash params 找到 access_token:', accessToken ? '是' : '否');
         }
         
         if (accessToken) {
-            console.log('🔍 從 URL 提取到 access_token');
+            console.log('✅ 從 URL 提取到 access_token:', accessToken.substring(0, 20) + '...');
             this.setItem('inf_google_access_token', accessToken);
             
             // ✅ 異步獲取用戶信息（不阻塞主流程）
@@ -88,6 +96,12 @@ class SafeStorage {
             });
             
             return accessToken;
+        } else {
+            console.warn('⚠️ URL 中沒有找到 access_token');
+            console.log('🔍 所有 URL 參數:', Array.from(urlParams.entries()));
+            if (urlHash) {
+                console.log('🔍 Hash 內容:', urlHash);
+            }
         }
         
         return null;
@@ -276,24 +290,33 @@ class StableButtonFinder {
 // 檢查 OAuth 回調並自動重開 modal
 function checkOAuthCallback(config = {}) {
     console.log('🔍 開始 OAuth 回調檢查...');
+    console.log('🔧 配置:', config);
     
     // 先從 URL 提取並保存 access_token（支援無痕模式）
     const accessToken = safeStorage.extractAndSaveTokenFromUrl();
     
     if (accessToken) {
         console.log('✅ 找到 access_token，開始處理 OAuth 回調');
+        console.log('🔧 將使用配置:', config);
         
         // 使用 requestAnimationFrame 確保在正確的時機執行
         requestAnimationFrame(() => {
+            console.log('📄 requestAnimationFrame 執行 processOAuthCallback');
             processOAuthCallback(config);
         });
+    } else {
+        console.warn('⚠️ 沒有找到 access_token，跳過 OAuth 處理');
     }
 }
 
 // 處理 OAuth 回調的實際邏輯
 function processOAuthCallback(config) {
+    console.log('🔧 processOAuthCallback 開始執行');
+    console.log('🔧 配置模式:', config.mode || '未設置（將使用默認模式）');
+    
     // 根據配置決定處理方式
     if (config.mode === 'size') {
+        console.log('📦 使用 Size 模式');
         // Size 模式：使用 sessionStorage 和 showIframe
         const savedIframeType = sessionStorage.getItem('current_iframe_type');
         
@@ -319,9 +342,11 @@ function processOAuthCallback(config) {
             }
         }
     } else if (config.mode === 'panel') {
+        console.log('📱 使用 Panel 模式');
         // Panel 模式：處理彈窗和自動點擊流程
         handleOAuthCallbackForPanel(config);
     } else {
+        console.log('🖥️ 使用標準模式（jQuery modal）');
         // 標準模式：使用 jQuery modal
         $("#inffits_cblock--overlay").fadeIn();
         $(".ai-pd-container__trigger").removeClass('ai-pd-container__trigger--search')
