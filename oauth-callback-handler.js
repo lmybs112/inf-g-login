@@ -936,39 +936,6 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
                           /Safari/.test(navigator.userAgent) && 
                           !/Chrome/.test(navigator.userAgent);
     
-    // ✅ 手機 Safari 無痕模式特殊處理：從 document.referrer 和 history 檢測
-    function checkMobileSafariIncognitoToken() {
-        if (!isMobileSafari) return null;
-        
-        console.log('📱 手機 Safari 無痕模式：使用特殊檢測方法');
-        
-        // 方法 1: 檢查 document.referrer
-        if (document.referrer && document.referrer.includes('access_token=')) {
-            console.log('📱 從 document.referrer 檢測到 access_token');
-            const tokenMatch = document.referrer.match(/[?&]access_token=([^&#]+)/);
-            if (tokenMatch) {
-                const accessToken = decodeURIComponent(tokenMatch[1]);
-                console.log('✅ 從 referrer 提取到 access_token:', accessToken.substring(0, 20) + '...');
-                return accessToken;
-            }
-        }
-        
-        // 方法 2: 檢查 history.state（如果有的話）
-        if (history.state && history.state.access_token) {
-            console.log('📱 從 history.state 檢測到 access_token');
-            return history.state.access_token;
-        }
-        
-        // 方法 3: 檢查 sessionStorage（重整頁面後）
-        const savedToken = sessionStorage.getItem('temp_access_token');
-        if (savedToken) {
-            console.log('📱 從 sessionStorage 恢復 access_token');
-            return savedToken;
-        }
-        
-        return null;
-    }
-    
     // ✅ 檢查 URL 的函數（支援多種方式檢測）
     function checkUrlForAccessToken() {
         // 方法 1: 從 window.location 檢查
@@ -986,17 +953,6 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
         if (!hasAccessToken && sessionStorage.getItem('temp_access_token')) {
             console.log('📱 在 sessionStorage 中檢測到 access_token');
             hasAccessToken = true;
-        }
-        
-        // 方法 4: 手機 Safari 無痕模式特殊檢測
-        if (!hasAccessToken && isMobileSafari) {
-            const token = checkMobileSafariIncognitoToken();
-            if (token) {
-                hasAccessToken = true;
-                // 立即保存到 sessionStorage
-                sessionStorage.setItem('temp_access_token', token);
-                console.log('✅ 已保存 access_token 到 sessionStorage');
-            }
         }
         
         return hasAccessToken;
@@ -1021,11 +977,6 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
             }
         }
         
-        // 手機 Safari 無痕模式特殊處理
-        if (!accessToken && isMobileSafari) {
-            accessToken = checkMobileSafariIncognitoToken();
-        }
-        
         if (accessToken) {
             sessionStorage.setItem('temp_access_token', accessToken);
             console.log('✅ 已保存 access_token 到 sessionStorage');
@@ -1040,7 +991,7 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
         console.log('📱 手機 Safari：使用輪詢方式檢測 access_token');
         
         let attempts = 0;
-        const maxAttempts = 30; // 增加到 30 次（3 秒）
+        const maxAttempts = 20; // 最多檢查 20 次（2 秒）
         
         const checkInterval = setInterval(() => {
             attempts++;
