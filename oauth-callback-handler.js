@@ -20,38 +20,136 @@ class IncognitoModeHandler {
         console.log(`🔍 存儲可用性: ${this.storageAvailable ? '是' : '否'}`);
     }
     
-    // 檢測無痕模式
+    // 檢測無痕模式（改進版 - 更準確的檢測方法）
     detectIncognitoMode() {
+        let incognitoScore = 0;
+        const maxScore = 5;
+        
+        // 方法1: 檢查 localStorage 配額
         try {
-            // 方法1: 檢查 localStorage 是否可用
             const testKey = '__incognito_test__';
             localStorage.setItem(testKey, 'test');
             localStorage.removeItem(testKey);
-            
-            // 方法2: 檢查 sessionStorage 是否可用
-            sessionStorage.setItem(testKey, 'test');
-            sessionStorage.removeItem(testKey);
-            
-            this.isIncognito = false;
         } catch (e) {
-            this.isIncognito = true;
+            incognitoScore++;
+            console.log('🔍 localStorage 檢測失敗:', e.message);
         }
         
-        // 方法3: 檢查 IndexedDB 是否可用（某些瀏覽器的無痕模式會限制 IndexedDB）
-        if (!this.isIncognito) {
-            try {
-                const request = indexedDB.open('__incognito_test__');
-                request.onerror = () => {
-                    this.isIncognito = true;
-                };
-                request.onsuccess = () => {
-                    request.result.close();
-                    indexedDB.deleteDatabase('__incognito_test__');
-                };
-            } catch (e) {
-                this.isIncognito = true;
-            }
+        // 方法2: 檢查 sessionStorage 配額
+        try {
+            const testKey = '__incognito_test__';
+            sessionStorage.setItem(testKey, 'test');
+            sessionStorage.removeItem(testKey);
+        } catch (e) {
+            incognitoScore++;
+            console.log('🔍 sessionStorage 檢測失敗:', e.message);
         }
+        
+        // 方法3: 檢查 IndexedDB 是否可用
+        try {
+            const request = indexedDB.open('__incognito_test__');
+            request.onerror = () => {
+                incognitoScore++;
+                console.log('🔍 IndexedDB 檢測失敗');
+            };
+            request.onsuccess = () => {
+                request.result.close();
+                indexedDB.deleteDatabase('__incognito_test__');
+            };
+        } catch (e) {
+            incognitoScore++;
+            console.log('🔍 IndexedDB 檢測失敗:', e.message);
+        }
+        
+        // 方法4: 檢查瀏覽器特定的無痕模式指標
+        try {
+            // Chrome 無痕模式檢測
+            if (navigator.userAgent.includes('Chrome')) {
+                // 檢查 Chrome 的無痕模式特定 API
+                if (window.chrome && window.chrome.runtime && window.chrome.runtime.onConnect) {
+                    // 在無痕模式下，某些 Chrome API 可能不可用
+                    const hasChromeAPI = typeof window.chrome.runtime.onConnect === 'function';
+                    if (!hasChromeAPI) {
+                        incognitoScore++;
+                        console.log('🔍 Chrome API 檢測失敗');
+                    }
+                }
+            }
+            
+            // Safari 無痕模式檢測
+            if (navigator.userAgent.includes('Safari') && !navigator.userAgent.includes('Chrome')) {
+                // Safari 無痕模式會限制某些功能
+                if (typeof window.safari === 'undefined') {
+                    incognitoScore++;
+                    console.log('🔍 Safari API 檢測失敗');
+                }
+            }
+        } catch (e) {
+            incognitoScore++;
+            console.log('🔍 瀏覽器特定檢測失敗:', e.message);
+        }
+        
+        // 方法5: 檢查存儲配額（無痕模式通常有更嚴格的配額限制）
+        try {
+            if (navigator.storage && navigator.storage.estimate) {
+                navigator.storage.estimate().then(estimate => {
+                    // 無痕模式的配額通常很小
+                    if (estimate.quota < 1000000) { // 小於 1MB
+                        incognitoScore++;
+                        console.log('🔍 存儲配額檢測失敗，配額:', estimate.quota);
+                    }
+                }).catch(e => {
+                    incognitoScore++;
+                    console.log('🔍 存儲配額檢測失敗:', e.message);
+                });
+            }
+        } catch (e) {
+            incognitoScore++;
+            console.log('🔍 存儲配額檢測失敗:', e.message);
+        }
+        
+        // 方法6: 檢查瀏覽器窗口標題（最直接的方法）
+        try {
+            const title = document.title;
+            const incognitoKeywords = [
+                '無痕視窗', 'Incognito', 'Private', '隱私', 'Private Browsing',
+                'InPrivate', '無痕模式', '隱私模式', 'Private Window'
+            ];
+            
+            const hasIncognitoTitle = incognitoKeywords.some(keyword => 
+                title.includes(keyword) || document.title.includes(keyword)
+            );
+            
+            if (hasIncognitoTitle) {
+                incognitoScore += 3; // 窗口標題是最可靠的指標，給更高權重
+                console.log('🔍 窗口標題檢測到無痕模式關鍵字:', title);
+            }
+        } catch (e) {
+            console.log('🔍 窗口標題檢測失敗:', e.message);
+        }
+        
+        // 方法7: 檢查 URL 中的無痕模式指標
+        try {
+            const url = window.location.href;
+            const incognitoUrlKeywords = ['incognito', 'private', '無痕'];
+            
+            const hasIncognitoUrl = incognitoUrlKeywords.some(keyword => 
+                url.toLowerCase().includes(keyword)
+            );
+            
+            if (hasIncognitoUrl) {
+                incognitoScore++;
+                console.log('🔍 URL 檢測到無痕模式關鍵字');
+            }
+        } catch (e) {
+            console.log('🔍 URL 檢測失敗:', e.message);
+        }
+        
+        // 根據分數判斷是否為無痕模式
+        this.isIncognito = incognitoScore >= 2; // 2 個或以上指標失敗就認為是無痕模式
+        
+        console.log(`🔍 無痕模式檢測分數: ${incognitoScore}/${maxScore}`);
+        console.log(`🔍 最終判斷: ${this.isIncognito ? '是' : '否'}`);
     }
     
     // 檢查存儲可用性
@@ -808,8 +906,8 @@ function clearUrlParameters() {
     } catch (e) {
         console.warn('⚠️ 清除 URL 參數失敗，使用降級方案:', e);
         // 降級方案：只清除基本路徑
-    const cleanUrl = window.location.origin + window.location.pathname;
-    window.history.replaceState({}, document.title, cleanUrl);
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
     }
 }
 
