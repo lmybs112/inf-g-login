@@ -3253,16 +3253,6 @@ class InfGoogleLoginComponent extends HTMLElement {
                 e.preventDefault();
                 this.avatarClickHandler();
             });
-            
-            // 手機瀏覽器特殊處理：防止長按選取
-            this.avatarElement.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-            });
-            
-            // 手機瀏覽器特殊處理：防止雙擊縮放
-            this.avatarElement.addEventListener('touchend', (e) => {
-                e.preventDefault();
-            });
         }
         
         if (this.modalElement) {
@@ -5658,7 +5648,6 @@ fillShoesMeasurementFields(data) {
             // 否則使用當前頁面 URL
             stateParam = currentUrl;
         }
-        
         // 構建 OAuth URL
         const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
         authUrl.searchParams.set('client_id', OAUTH_CONFIG.clientId);
@@ -5669,207 +5658,13 @@ fillShoesMeasurementFields(data) {
         authUrl.searchParams.set('access_type', 'offline'); // 🔑 關鍵：必須設定才能獲得 refresh_token
         authUrl.searchParams.set('prompt', 'consent'); // 🔑 關鍵：強制顯示授權頁面
         
-        // 檢測是否為手機瀏覽器
-        const isMobile = utils.isMobile();
-        const isInIframe = window.parent !== window;
-        
-        // 手機瀏覽器或 iframe 環境的處理策略
-        if (isMobile || isInIframe) {
-            // 手機瀏覽器：嘗試使用彈窗，如果失敗則使用頁面跳轉
-            if (isMobile && !isInIframe) {
-                try {
-                    // 嘗試開啟彈窗
-                    const popup = this.openOAuthPopup(authUrl.toString());
-                    if (popup) {
-                        console.log('📱 手機瀏覽器：使用彈窗登入');
-                        return; // 成功開啟彈窗，結束函數
-                    }
-                } catch (error) {
-                    console.warn('⚠️ 彈窗被阻擋，改用頁面跳轉:', error);
-                }
-            }
-            
-            // 彈窗失敗或 iframe 環境：使用頁面跳轉
-            if (isInIframe) {
-                console.log('🖼️ iframe 環境：跳出 iframe 進行登入');
-                window.top.location.href = authUrl.toString();
-            } else {
-                console.log('📱 手機瀏覽器：使用頁面跳轉登入');
-                window.location.href = authUrl.toString();
-            }
+        // 檢查是否在 iframe 中，如果是則跳出 iframe 進行登入
+        if (window.parent !== window) {
+            // 在 iframe 中，使用 window.top 跳出 iframe
+            window.top.location.href = authUrl.toString();
         } else {
-            // 桌面瀏覽器：使用彈窗登入
-            console.log('🖥️ 桌面瀏覽器：使用彈窗登入');
-            const popup = this.openOAuthPopup(authUrl.toString());
-            if (!popup) {
-                console.warn('⚠️ 彈窗被阻擋，改用頁面跳轉');
-                window.location.href = authUrl.toString();
-            }
-        }
-    }
-    
-    // 開啟 OAuth 彈窗
-    openOAuthPopup(url) {
-        // 彈窗尺寸設定（針對不同設備優化）
-        const isMobile = utils.isMobile();
-        const width = isMobile ? Math.min(400, window.innerWidth * 0.9) : 500;
-        const height = isMobile ? Math.min(600, window.innerHeight * 0.8) : 600;
-        
-        // 計算彈窗位置（居中顯示）
-        const left = Math.round((window.innerWidth - width) / 2);
-        const top = Math.round((window.innerHeight - height) / 2);
-        
-        // 彈窗特性設定
-        const popupFeatures = [
-            `width=${width}`,
-            `height=${height}`,
-            `left=${left}`,
-            `top=${top}`,
-            'scrollbars=yes',
-            'resizable=yes',
-            'toolbar=no',
-            'menubar=no',
-            'location=no',
-            'status=no'
-        ].join(',');
-        
-        try {
-            // 開啟彈窗
-            const popup = window.open(url, 'oauth-popup', popupFeatures);
-            
-            if (!popup || popup.closed || typeof popup.closed === 'undefined') {
-                // 彈窗被阻擋或開啟失敗
-                this.showPopupBlockedMessage();
-                return null;
-            }
-            
-            // 監聽彈窗關閉和授權完成
-            this.monitorOAuthPopup(popup);
-            
-            return popup;
-        } catch (error) {
-            console.error('❌ 開啟彈窗失敗:', error);
-            this.showPopupBlockedMessage();
-            return null;
-        }
-    }
-    
-    // 顯示彈窗被阻擋的提示訊息
-    showPopupBlockedMessage() {
-        // 檢查是否已經顯示過提示
-        if (document.getElementById('popup-blocked-message')) {
-            return;
-        }
-        
-        const isMobile = utils.isMobile();
-        const message = isMobile ? 
-            '手機瀏覽器已自動使用頁面跳轉進行登入' : 
-            '彈窗被瀏覽器阻擋，請允許彈窗或使用頁面跳轉登入';
-        
-        // 創建提示元素
-        const messageDiv = document.createElement('div');
-        messageDiv.id = 'popup-blocked-message';
-        messageDiv.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #4CAF50;
-            color: white;
-            padding: 12px 20px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            z-index: 10000;
-            max-width: 300px;
-            animation: slideInRight 0.3s ease-out;
-        `;
-        
-        // 添加動畫樣式
-        if (!document.getElementById('popup-message-styles')) {
-            const style = document.createElement('style');
-            style.id = 'popup-message-styles';
-            style.textContent = `
-                @keyframes slideInRight {
-                    from { transform: translateX(100%); opacity: 0; }
-                    to { transform: translateX(0); opacity: 1; }
-                }
-            `;
-            document.head.appendChild(style);
-        }
-        
-        messageDiv.textContent = message;
-        document.body.appendChild(messageDiv);
-        
-        // 3秒後自動移除提示
-        setTimeout(() => {
-            if (messageDiv && messageDiv.parentNode) {
-                messageDiv.style.animation = 'slideInRight 0.3s ease-out reverse';
-                setTimeout(() => {
-                    messageDiv.remove();
-                }, 300);
-            }
-        }, 3000);
-    }
-    
-    // 監聽 OAuth 彈窗狀態
-    monitorOAuthPopup(popup) {
-        const checkClosed = setInterval(() => {
-            try {
-                if (popup.closed) {
-                    // 彈窗已關閉
-                    clearInterval(checkClosed);
-                    console.log('🔒 OAuth 彈窗已關閉');
-                    
-                    // 檢查是否有授權結果（可能需要延遲檢查）
-                    setTimeout(() => {
-                        this.checkOAuthResult();
-                    }, 500);
-                    return;
-                }
-                
-                // 檢查彈窗 URL 是否包含授權結果
-                try {
-                    const popupUrl = popup.location.href;
-                    if (popupUrl.includes('code=') || popupUrl.includes('error=')) {
-                        // 授權完成，關閉彈窗
-                        popup.close();
-                        clearInterval(checkClosed);
-                        
-                        // 處理授權結果
-                        this.handleOAuthCallback();
-                    }
-                } catch (e) {
-                    // 跨域錯誤，忽略（彈窗還在 Google 域名）
-                }
-            } catch (error) {
-                // 彈窗可能已關閉或發生錯誤
-                clearInterval(checkClosed);
-            }
-        }, 1000); // 每秒檢查一次
-        
-        // 設定超時（5分鐘）
-        setTimeout(() => {
-            clearInterval(checkClosed);
-            if (!popup.closed) {
-                popup.close();
-                console.warn('⏰ OAuth 彈窗超時關閉');
-            }
-        }, 300000);
-    }
-    
-    // 檢查 OAuth 授權結果
-    checkOAuthResult() {
-        // 檢查 URL 參數
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get('code');
-        const error = urlParams.get('error');
-        
-        if (code || error) {
-            console.log('✅ 檢測到 OAuth 授權結果');
-            this.handleOAuthCallback();
-        } else {
-            console.log('ℹ️ 未檢測到 OAuth 授權結果');
+            // 不在 iframe 中，直接跳轉
+            window.location.href = authUrl.toString();
         }
     }
     

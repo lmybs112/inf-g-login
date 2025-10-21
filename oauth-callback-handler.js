@@ -124,13 +124,6 @@ function handleOAuthCallbackForPanel(config = {}) {
 // 開啟彈窗並切換到 AI 頁面的函數（優化版 - 監聽 iframe 通知）
 function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
     let buttonClicked = false;
-    let findSizeButtonAutoClicked = false;
-    
-    // 檢測是否為手機瀏覽器
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const animationDelay = isMobile ? 1000 : 500; // 手機版等待更久
-    
-    console.log(`📱 檢測到 ${isMobile ? '手機' : '電腦'} 瀏覽器，動畫延遲: ${animationDelay}ms`);
     
     // 點擊按鈕並處理後續流程
     function clickButtonAndProceed() {
@@ -143,30 +136,20 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
             console.log('✅ 找到 #panelTagBtn，準備點擊');
             triggerBtn.click();
             
-            // 設置雙重保險：transitionend 事件 + 定時器
-            let transitionFired = false;
-            
             // 監聽彈窗開啟動畫完成事件
-            const onTransitionEnd = function() {
-                if (findSizeButtonAutoClicked) return;
-                transitionFired = true;
+            panelOffcanvas.addEventListener('transitionend', function onTransitionEnd() {
                 panelOffcanvas.removeEventListener('transitionend', onTransitionEnd);
                 
-                console.log('✅ transitionend 事件觸發');
                 // 自動點擊「找尋合適尺寸」按鈕
                 autoClickFindSizeButton(iframe, config);
-            };
+            }, { once: true });
             
-            panelOffcanvas.addEventListener('transitionend', onTransitionEnd, { once: true });
-            
-            // ✅ 定時器保底（手機版尤其重要）
+            // 如果沒有動畫，延遲執行（確保彈窗已開啟）
             setTimeout(() => {
-                if (!findSizeButtonAutoClicked && !transitionFired) {
-                    console.log(`⏱️ ${animationDelay}ms 定時器觸發（transitionend 未觸發）`);
-                    panelOffcanvas.removeEventListener('transitionend', onTransitionEnd);
+                if (!panelOffcanvas.style.transition) {
                     autoClickFindSizeButton(iframe, config);
                 }
-            }, animationDelay);
+            }, 500);
         } else {
             console.warn('⚠️ 找不到 #panelTagBtn，直接嘗試點擊「找尋合適尺寸」');
             autoClickFindSizeButton(iframe, config);
@@ -202,14 +185,7 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
 function autoClickFindSizeButton(iframe, config = {}) {
     let buttonClicked = false;
     let checkAttempts = 0;
-    
-    // 檢測是否為手機瀏覽器
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const maxCheckAttempts = isMobile ? 75 : 50; // 手機版給更多時間
-    const pollInterval = isMobile ? 150 : 200; // 手機版檢查更頻繁
-    const buttonDelay = isMobile ? 800 : 500; // 手機版延遲更久
-    
-    console.log(`📱 autoClickFindSizeButton: ${isMobile ? '手機' : '電腦'}模式`);
+    const maxCheckAttempts = 50; // 最多檢查 50 次（10 秒）
     
     // 嘗試點擊按鈕
     function tryClickButton() {
@@ -222,41 +198,19 @@ function autoClickFindSizeButton(iframe, config = {}) {
         // 尋找「找尋合適尺寸」按鈕（.intro-btn--primary）
         const findSizeButton = document.querySelector('.intro-btn--primary');
         
-        if (findSizeButton) {
-            // 手機版：更寬鬆的可見性檢查
-            const isVisible = isMobile 
-                ? (findSizeButton.offsetWidth > 0 || findSizeButton.offsetHeight > 0)
-                : (findSizeButton.offsetParent !== null);
+        if (findSizeButton && findSizeButton.offsetParent !== null) {
+            console.log('✅ 找到「找尋合適尺寸」按鈕，自動點擊');
+            buttonClicked = true;
             
-            if (isVisible) {
-                console.log('✅ 找到「找尋合適尺寸」按鈕，自動點擊');
-                buttonClicked = true;
-                
-                // 點擊按鈕（手機版可能需要多種方式）
-                if (isMobile) {
-                    // 手機版：嘗試觸控事件
-                    try {
-                        findSizeButton.dispatchEvent(new TouchEvent('touchstart', { bubbles: true }));
-                        findSizeButton.click();
-                        findSizeButton.dispatchEvent(new TouchEvent('touchend', { bubbles: true }));
-                        console.log('  ✓ 手機版觸控事件序列完成');
-                    } catch (e) {
-                        // 降級：只用 click
-                        findSizeButton.click();
-                        console.log('  ✓ 降級使用 click 事件');
-                    }
-                } else {
-                    // 電腦版：直接 click
-                    findSizeButton.click();
-                }
-                
-                // 等待按鈕點擊後的頁面切換，然後處理 iframe
-                setTimeout(() => {
-                    handleIframeAndUrlCleanup(iframe, config);
-                }, buttonDelay);
-                
-                return true;
-            }
+            // 點擊按鈕
+            findSizeButton.click();
+            
+            // 等待按鈕點擊後的頁面切換，然後處理 iframe
+            setTimeout(() => {
+                handleIframeAndUrlCleanup(iframe, config);
+            }, config.buttonDelay || 500);
+            
+            return true;
         }
         
         return false;
@@ -268,9 +222,9 @@ function autoClickFindSizeButton(iframe, config = {}) {
     }
     
     // 使用輪詢方式持續檢查（更可靠）
-    const pollIntervalId = setInterval(() => {
+    const pollInterval = setInterval(() => {
         if (buttonClicked || checkAttempts >= maxCheckAttempts) {
-            clearInterval(pollIntervalId);
+            clearInterval(pollInterval);
             
             if (!buttonClicked) {
                 console.warn('⚠️ 未找到「找尋合適尺寸」按鈕，直接處理 iframe');
@@ -280,13 +234,13 @@ function autoClickFindSizeButton(iframe, config = {}) {
         }
         
         tryClickButton();
-    }, pollInterval); // 使用動態間隔（手機 150ms / 電腦 200ms）
+    }, 200); // 每 200ms 檢查一次
     
     // 同時使用 MutationObserver 作為補充（DOM 變化時立即檢查）
     const buttonObserver = new MutationObserver((mutations) => {
         if (!buttonClicked && tryClickButton()) {
             buttonObserver.disconnect();
-            clearInterval(pollIntervalId);
+            clearInterval(pollInterval);
         }
     });
     
@@ -295,17 +249,16 @@ function autoClickFindSizeButton(iframe, config = {}) {
         subtree: true
     });
     
-    // 動態超時（手機 15 秒 / 電腦 10 秒）
-    const timeout = isMobile ? 15000 : 10000;
+    // 10 秒後停止所有監聽
     setTimeout(() => {
         buttonObserver.disconnect();
-        clearInterval(pollIntervalId);
+        clearInterval(pollInterval);
         
         if (!buttonClicked) {
-            console.warn(`⚠️ ${timeout}ms 超時，直接處理 iframe`);
+            console.warn('⚠️ 超時，直接處理 iframe');
             handleIframeAndUrlCleanup(iframe, config);
         }
-    }, timeout);
+    }, 10000);
 }
 
 // 處理 iframe 載入和 URL 清除（優化版）
