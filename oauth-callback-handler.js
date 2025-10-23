@@ -4,6 +4,10 @@
  * 支援無痕模式下的正常登入
  */
 
+// 設置 Shopline 內嵌腳本所需的變數
+window.selfLink = window.location.href;
+window.selfSearch = window.location.search;
+
 // 無痕模式安全存儲處理器（透明處理，行為與 localStorage 一致）
 class SafeStorage {
     constructor() {
