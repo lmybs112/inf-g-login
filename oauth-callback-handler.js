@@ -543,16 +543,16 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
         if (buttonClicked) return;
         buttonClicked = true;
         
+        // ✅ 立即停止按鈕查找器，避免重複查找
+        if (buttonFinder) {
+            buttonFinder.stop();
+            console.log('🛑 已停止 #panelTagBtn 查找器');
+        }
+        
         const triggerBtn = document.getElementById('panelTagBtn');
         
         if (triggerBtn) {
             console.log('✅ 找到 #panelTagBtn，直接點擊！');
-            
-            // ✅ 立即停止按鈕查找器，避免重複查找
-            if (buttonFinder) {
-                buttonFinder.stop();
-                console.log('🛑 已停止 #panelTagBtn 查找器');
-            }
             
             // 手機版：使用觸控事件序列確保點擊有效
             if (isMobile) {
@@ -626,10 +626,13 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
     window.addEventListener('message', iframeReadyHandler);
     
     // ✅ 使用穩定的按鈕查找機制（移除不穩定的 setTimeout）
-    let buttonFinder = new StableButtonFinder('#panelTagBtn', {
+    const buttonFinder = new StableButtonFinder('#panelTagBtn', {
         onFound: () => {
             if (!buttonClicked) {
                 console.log('🎯 穩定按鈕查找器找到 #panelTagBtn，直接點擊！');
+                // ✅ 立即停止按鈕查找器，避免重複查找
+                buttonFinder.stop();
+                console.log('🛑 已停止 #panelTagBtn 查找器');
                 clickButtonAndProceed();
             }
         },
@@ -641,15 +644,7 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
         timeout: 15000 // 15 秒超時
     });
     
-    // ✅ 檢查 panel 是否已經打開，如果已打開則直接跳過按鈕查找
-    const panelOffcanvas = document.querySelector('.panelOffcanvas');
-    if (panelOffcanvas && panelOffcanvas.classList.contains('show')) {
-        console.log('✅ Panel 已經打開，跳過 #panelTagBtn 查找，直接處理後續流程');
-        buttonFinder.stop(); // 停止按鈕查找
-        autoClickFindSizeButton(iframe, config);
-    } else {
-        buttonFinder.start();
-    }
+    buttonFinder.start();
 }
 
 // 自動點擊「找尋合適尺寸」按鈕的函數（優化版 - 使用穩定查找機制）
