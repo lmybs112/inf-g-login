@@ -249,25 +249,11 @@ class StableButtonFinder {
         
         const button = this.findButton();
         if (button) {
-            // 簡化檢查：只要按鈕存在就算找到
-            const isReady = this.isButtonReady(button);
-            
-            if (isReady) {
-                console.log(`✅ 按鈕 ${this.selector} 已找到並準備就緒`);
-                this.cleanup();
-                this.onFound();
-                return true;
-            } else {
-                // 輸出詳細的調試信息
-                console.log(`🔍 按鈕 ${this.selector} 存在但未準備就緒:`, {
-                    disabled: button.disabled,
-                    display: button.style.display,
-                    visibility: button.style.visibility,
-                    offsetWidth: button.offsetWidth,
-                    offsetHeight: button.offsetHeight,
-                    offsetParent: button.offsetParent
-                });
-            }
+            // ✅ 只要按鈕存在就算找到並準備就緒
+            console.log(`✅ 按鈕 ${this.selector} 已找到並準備就緒`);
+            this.cleanup();
+            this.onFound();
+            return true;
         }
         return false;
     }
@@ -282,24 +268,6 @@ class StableButtonFinder {
             // 假設是 CSS 選擇器
             return document.querySelector(this.selector);
         }
-    }
-    
-    isButtonReady(button) {
-        // ✅ 極度簡化：只檢查按鈕是否在 DOM 中且不是 display: none
-        // 不再檢查 offsetWidth/offsetHeight，因為某些情況下按鈕可能因為 CSS 或位置問題導致檢測失敗
-        
-        // 檢查是否完全隱藏
-        const computedStyle = window.getComputedStyle(button);
-        const isHidden = computedStyle.display === 'none' || 
-                        computedStyle.visibility === 'hidden' ||
-                        computedStyle.opacity === '0';
-        
-        if (isHidden) {
-            return false;
-        }
-        
-        // ✅ 只要按鈕不是完全隱藏，就算準備好
-        return true;
     }
     
     setupMutationObserver() {
