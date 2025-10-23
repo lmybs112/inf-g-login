@@ -279,6 +279,11 @@ class StableButtonFinder {
     }
     
     checkButton() {
+        // ✅ 如果查找器已經停止，直接返回
+        if (!this.isActive) {
+            return false;
+        }
+        
         const button = this.findButton();
         if (button) {
             // 簡化檢查：只要按鈕存在就算找到
@@ -336,6 +341,11 @@ class StableButtonFinder {
     
     setupMutationObserver() {
         const observer = new MutationObserver((mutations) => {
+            // ✅ 如果查找器已經停止，直接返回
+            if (!this.isActive) {
+                return;
+            }
+            
             if (this.checkButton()) {
                 return;
             }
@@ -353,6 +363,12 @@ class StableButtonFinder {
     
     setupPolling() {
         const pollInterval = setInterval(() => {
+            // ✅ 如果查找器已經停止，清除定時器
+            if (!this.isActive) {
+                clearInterval(pollInterval);
+                return;
+            }
+            
             this.attempts++;
             
             if (this.checkButton()) {
