@@ -4,10 +4,6 @@
  * 支援無痕模式下的正常登入
  */
 
-// 設置 Shopline 內嵌腳本所需的變數
-window.selfLink = window.location.href;
-window.selfSearch = window.location.search;
-
 // 無痕模式安全存儲處理器（透明處理，行為與 localStorage 一致）
 class SafeStorage {
     constructor() {
@@ -167,7 +163,31 @@ class SafeStorage {
             }
         }
         
-        // ✅ 方法 6: 手機 Safari 特殊處理 - 檢查 sessionStorage 中是否有保存的 token
+        // ✅ 方法 6: 跨域無痕狀態備取方式 - 檢查 window.testSearch
+        if (!accessToken) {
+            console.log('🔍 跨域無痕狀態：檢查 window.testSearch 備取方式');
+            
+            if (window.testSearch && window.testSearch.includes('access_token=')) {
+                console.log('📍 在 window.testSearch 中找到 access_token:', window.testSearch);
+                const tokenMatch = window.testSearch.match(/[?&]access_token=([^&#]+)/);
+                if (tokenMatch) {
+                    accessToken = decodeURIComponent(tokenMatch[1]);
+                    console.log('✅ 從 testSearch 提取到 access_token:', accessToken.substring(0, 20) + '...');
+                }
+            }
+            
+            // 檢查 window.testLink 作為額外備取
+            if (!accessToken && window.testLink && window.testLink.includes('access_token=')) {
+                console.log('📍 在 window.testLink 中找到 access_token:', window.testLink);
+                const tokenMatch = window.testLink.match(/[?&]access_token=([^&#]+)/);
+                if (tokenMatch) {
+                    accessToken = decodeURIComponent(tokenMatch[1]);
+                    console.log('✅ 從 testLink 提取到 access_token:', accessToken.substring(0, 20) + '...');
+                }
+            }
+        }
+        
+        // ✅ 方法 7: 手機 Safari 特殊處理 - 檢查 sessionStorage 中是否有保存的 token
         if (!accessToken && isMobileSafari) {
             console.log('📱 手機 Safari：檢查 sessionStorage 中是否有保存的 token');
             const savedToken = sessionStorage.getItem('temp_access_token');
@@ -1013,9 +1033,40 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
         return null;
     }
     
+    // ✅ 從跨域無痕狀態備取方式獲取 URL
+    function getRealUrlFromTestVariables() {
+        console.log('🔍 嘗試從跨域無痕狀態備取方式獲取 URL');
+        
+        // 檢查 window.testSearch
+        if (window.testSearch) {
+            console.log('📍 window.testSearch:', window.testSearch);
+            if (window.testSearch.includes('access_token=')) {
+                console.log('✅ 在 testSearch 中找到 access_token');
+                return window.testSearch;
+            }
+        }
+        
+        // 檢查 window.testLink
+        if (window.testLink) {
+            console.log('📍 window.testLink:', window.testLink);
+            if (window.testLink.includes('access_token=')) {
+                console.log('✅ 在 testLink 中找到 access_token');
+                return window.testLink;
+            }
+        }
+        
+        return null;
+    }
+    
     // ✅ 從真實 URL 提取 access_token
     function extractTokenFromRealUrl() {
-        const realUrl = getRealUrlFromShopline();
+        // 首先嘗試從 Shopline 內嵌腳本獲取
+        let realUrl = getRealUrlFromShopline();
+        
+        // 如果沒有找到，嘗試從跨域無痕狀態備取方式獲取
+        if (!realUrl) {
+            realUrl = getRealUrlFromTestVariables();
+        }
         
         if (realUrl) {
             console.log('🔍 從真實 URL 提取 access_token:', realUrl);
@@ -1063,6 +1114,17 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
             }
         }
         
+        // 方法 5: 從跨域無痕狀態備取方式檢查
+        if (!hasAccessToken) {
+            if (window.testSearch && window.testSearch.includes('access_token=')) {
+                console.log('🔍 在 testSearch 中檢測到 access_token');
+                hasAccessToken = true;
+            } else if (window.testLink && window.testLink.includes('access_token=')) {
+                console.log('🔍 在 testLink 中檢測到 access_token');
+                hasAccessToken = true;
+            }
+        }
+        
         return hasAccessToken;
     }
     
@@ -1088,6 +1150,21 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
         // 從 Shopline 內嵌腳本數據提取（手機 Safari 專用）
         if (!accessToken && isMobileSafari) {
             accessToken = extractTokenFromRealUrl();
+        }
+        
+        // 從跨域無痕狀態備取方式提取
+        if (!accessToken) {
+            if (window.testSearch && window.testSearch.includes('access_token=')) {
+                const tokenMatch = window.testSearch.match(/[?&]access_token=([^&#]+)/);
+                if (tokenMatch) {
+                    accessToken = decodeURIComponent(tokenMatch[1]);
+                }
+            } else if (window.testLink && window.testLink.includes('access_token=')) {
+                const tokenMatch = window.testLink.match(/[?&]access_token=([^&#]+)/);
+                if (tokenMatch) {
+                    accessToken = decodeURIComponent(tokenMatch[1]);
+                }
+            }
         }
         
         if (accessToken) {
