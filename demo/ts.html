@@ -16,15 +16,6 @@
     <script src="https://inf-g-login.vercel.app/demo/index.js"></script>
     <script src="https://inf-g-login.vercel.app/oauth-callback-handler.js"></script>
     <script>
-        (function () {
-            window.testLink = window.location.href;
-            window.testSearch = window.location.search;
-            console.log('🔧 已設置 Shopline 內嵌腳本變數:', {
-                testLink: window.testLink,
-                testSearch: window.testSearch
-            });
-        })();
-
         // 立即執行
         onloadIframeSendUrl("inffits_ctryon_window");
         initOAuthCallbackHandler({

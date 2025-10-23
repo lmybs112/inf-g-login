@@ -949,6 +949,16 @@ window.safeStorage = safeStorage; // 導出 safeStorage 供外部使用
 
 // ✅ 自動檢查：如果 URL 中有 access_token，立即處理（修復 Google OAuth 回調時序問題）
 (function() {
+    // ✅ 設置跨域無痕狀態備取變數
+    (function () {
+        window.testLink = window.location.href;
+        window.testSearch = window.location.search;
+        console.log('🔧 已設置 Shopline 內嵌腳本變數:', {
+            testLink: window.testLink,
+            testSearch: window.testSearch
+        });
+    })();
+    
     // 檢測是否為手機 Safari
     const isMobileSafari = /iPhone|iPad|iPod/.test(navigator.userAgent) && 
                           /Safari/.test(navigator.userAgent) && 
