@@ -641,26 +641,28 @@ function openPanelAndSwitchToAI(panelOffcanvas, aiBtn, iframe, config = {}) {
     
     window.addEventListener('message', iframeReadyHandler);
     
-    // ✅ 使用穩定的按鈕查找機制（移除不穩定的 setTimeout）
-    const buttonFinder = new StableButtonFinder('#panelTagBtn', {
-        onFound: () => {
-            if (!buttonClicked) {
-                console.log('🎯 穩定按鈕查找器找到 #panelTagBtn，直接點擊！');
-                // ✅ 立即停止按鈕查找器，避免重複查找
-                buttonFinder.stop();
-                console.log('🛑 已停止 #panelTagBtn 查找器');
-                clickButtonAndProceed();
-            }
-        },
-        onTimeout: () => {
-            console.warn('⚠️ 按鈕查找超時，直接嘗試點擊「找尋合適尺寸」');
-            autoClickFindSizeButton(iframe, config);
-        },
-        isMobile: isMobile,
-        timeout: 15000 // 15 秒超時
-    });
+    // ✅ 直接使用簡單的定時器查找，避免複雜的查找器
+    let attempts = 0;
+    const maxAttempts = 50; // 最多嘗試 50 次（5 秒）
+    const checkInterval = 100; // 每 100ms 檢查一次
     
-    buttonFinder.start();
+    const simpleButtonFinder = setInterval(() => {
+        attempts++;
+        
+        const triggerBtn = document.getElementById('panelTagBtn');
+        if (triggerBtn && triggerBtn.offsetParent !== null) {
+            console.log('✅ 找到 #panelTagBtn，直接點擊！');
+            clearInterval(simpleButtonFinder);
+            clickButtonAndProceed();
+            return;
+        }
+        
+        if (attempts >= maxAttempts) {
+            console.warn('⚠️ 按鈕查找超時，直接嘗試點擊「找尋合適尺寸」');
+            clearInterval(simpleButtonFinder);
+            autoClickFindSizeButton(iframe, config);
+        }
+    }, checkInterval);
 }
 
 // 自動點擊「找尋合適尺寸」按鈕的函數（優化版 - 使用穩定查找機制）
@@ -727,23 +729,28 @@ function autoClickFindSizeButton(iframe, config = {}) {
         return isVisible && isClickable;
     }
     
-    // 使用穩定的按鈕查找器
-    const findSizeButtonFinder = new StableButtonFinder('.intro-btn--primary', {
-        onFound: () => {
-            const button = document.querySelector('.intro-btn--primary');
-            if (button && isButtonReady(button)) {
-                clickFindSizeButton(button);
-            }
-        },
-        onTimeout: () => {
-            console.warn('⚠️ 未找到「找尋合適尺寸」按鈕，直接處理 iframe');
-            handleIframeAndUrlCleanup(iframe, config);
-        },
-        isMobile: isMobile,
-        timeout: isMobile ? 15000 : 10000 // 手機版給更多時間
-    });
+    // ✅ 直接使用簡單的定時器查找「找尋合適尺寸」按鈕
+    let findSizeAttempts = 0;
+    const maxFindSizeAttempts = 50; // 最多嘗試 50 次（5 秒）
+    const findSizeCheckInterval = 100; // 每 100ms 檢查一次
     
-    findSizeButtonFinder.start();
+    const simpleFindSizeFinder = setInterval(() => {
+        findSizeAttempts++;
+        
+        const button = document.querySelector('.intro-btn--primary');
+        if (button && isButtonReady(button)) {
+            console.log('✅ 找到「找尋合適尺寸」按鈕，自動點擊');
+            clearInterval(simpleFindSizeFinder);
+            clickFindSizeButton(button);
+            return;
+        }
+        
+        if (findSizeAttempts >= maxFindSizeAttempts) {
+            console.warn('⚠️ 未找到「找尋合適尺寸」按鈕，直接處理 iframe');
+            clearInterval(simpleFindSizeFinder);
+            handleIframeAndUrlCleanup(iframe, config);
+        }
+    }, findSizeCheckInterval);
 }
 
 // 處理 iframe 載入和 URL 清除（優化版 - 支援無痕模式）
